@@ -1,0 +1,13 @@
+.DS_Store
+build/
+**/build/
+DerivedData/
+Temp/
+*.xcuserstate
+**/xcuserdata/
+*.xcresult
+.swiftpm/
+*.baiduyun.uploading.cfg
+**/*冲突文件*
+**/*冲突副本*
+
