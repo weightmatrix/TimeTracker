@@ -60,7 +60,7 @@
 		888370652EE19B230063F2C2 /* TimeTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TimeTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		888370742EE19B240063F2C2 /* TimeTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TimeTrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8883707E2EE19B240063F2C2 /* TimeTrackerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TimeTrackerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		888CA1BC2F14DB2200EA67EE /* markdown_assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = markdown_assets; path = ../../../../../../../../Downloads/Temp/Download/markdown_assets; sourceTree = "<group>"; };
+		888CA1BC2F14DB2200EA67EE /* markdown_assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = markdown_assets; path = markdown_assets; sourceTree = "<group>"; };
 		88DE18FA2EF59960003E88FC /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 

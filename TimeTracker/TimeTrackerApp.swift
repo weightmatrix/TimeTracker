@@ -1292,31 +1292,43 @@ class EfficiencyStore: ObservableObject {
     }
     
     func load() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            let d1 = CloudFileManager.shared.smartLoad(folder: .records, fileName: self.dataFileName)
-            let d2 = CloudFileManager.shared.smartLoad(folder: .records, fileName: self.weeklyFileName)
-            let d3 = CloudFileManager.shared.smartLoad(folder: .records, fileName: self.settingsFileName)
-            
-            var loadedAny = false
-            
-            if let d = d1, let v = try? JSONDecoder().decode([String: DailyEfficiency].self, from: d) {
-                self.dailyData = v; loadedAny = true
-            }
-            if let wd = d2, let w = try? JSONDecoder().decode([String: WeeklyTarget].self, from: wd) {
-                self.weeklyTargets = w; loadedAny = true
-            }
-            if let sd = d3, let s = try? JSONDecoder().decode(SettingsData.self, from: sd) {
-                self.targetHours = s.targetHours; self.targetEfficiency = s.targetEfficiency; loadedAny = true
-            }
-            
-            if loadedAny {
-                self.isFreshLaunch = false
-            } else {
-                if self.dailyData.isEmpty && self.weeklyTargets.isEmpty {
-                    self.isFreshLaunch = true
-                    print("[EfficiencyStore] 进入幽灵模式")
+        // 【启动优化】：iCloud 文件读取与 NSFileCoordinator 可能阻塞数秒，
+        // 必须放到后台队列执行，避免主线程在启动瞬间卡死。
+        let dataName = dataFileName
+        let weeklyName = weeklyFileName
+        let settingsName = settingsFileName
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let d1 = CloudFileManager.shared.smartLoad(folder: .records, fileName: dataName)
+            let d2 = CloudFileManager.shared.smartLoad(folder: .records, fileName: weeklyName)
+            let d3 = CloudFileManager.shared.smartLoad(folder: .records, fileName: settingsName)
+
+            let decodedDaily = d1.flatMap { try? JSONDecoder().decode([String: DailyEfficiency].self, from: $0) }
+            let decodedWeekly = d2.flatMap { try? JSONDecoder().decode([String: WeeklyTarget].self, from: $0) }
+
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                let decodedSettings = d3.flatMap { try? JSONDecoder().decode(SettingsData.self, from: $0) }
+
+                var loadedAny = false
+
+                if let v = decodedDaily {
+                    self.dailyData = v; loadedAny = true
+                }
+                if let w = decodedWeekly {
+                    self.weeklyTargets = w; loadedAny = true
+                }
+                if let s = decodedSettings {
+                    self.targetHours = s.targetHours; self.targetEfficiency = s.targetEfficiency; loadedAny = true
+                }
+
+                if loadedAny {
+                    self.isFreshLaunch = false
+                } else {
+                    if self.dailyData.isEmpty && self.weeklyTargets.isEmpty {
+                        self.isFreshLaunch = true
+                        print("[EfficiencyStore] 进入幽灵模式")
+                    }
                 }
             }
         }
@@ -2245,17 +2257,20 @@ class ArchiveStore: ObservableObject {
 
     // MARK: - Initialization
     init() {
-        let taskURL = CloudFileManager.shared.getCloudDir(.records).appendingPathComponent("TaskLists")
-        try? fm.createDirectory(at: taskURL, withIntermediateDirectories: true)
-        
-        loadConfig()
-        
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
+            let taskURL = CloudFileManager.shared.getCloudDir(.records).appendingPathComponent("TaskLists")
+            try? self.fm.createDirectory(at: taskURL, withIntermediateDirectories: true)
+            let loadedTemplates = self.loadTemplatesData()
+            let loadedSmartViews = self.loadSmartViewsData()
+            let loadedUnmatched = self.loadUnmatchedData()
             self.loadDataFromFileSystem()
             self.loadTaskLists()
             
             DispatchQueue.main.async {
+                if let loadedTemplates { self.templates = loadedTemplates }
+                if let loadedSmartViews { self.smartViews = loadedSmartViews }
+                if let loadedUnmatched { self.unmatchedTables = loadedUnmatched }
                 self.ensureSystemFolders()
                 self.scanImportFolder()
             }
@@ -2747,7 +2762,7 @@ extension ArchiveStore {
     
     // 【195号核心修改】：分类排序文件也彻底切断老路径回溯
     func sortCategories() {
-        let templatesURL = CloudFileManager.shared.getCloudDir(.templates).appendingPathComponent(orderFileName)
+        let templatesURL = CloudFileManager.shared.getLocalMirrorDir(.templates).appendingPathComponent(orderFileName)
         
         var loadedData: Data? = nil
         if fm.fileExists(atPath: templatesURL.path) {
@@ -9004,7 +9019,19 @@ class TeachingStore: ObservableObject {
     @objc private func handleCloudFileChange(_ notification: Notification) { guard let userInfo = notification.userInfo, let path = userInfo["path"] as? String, path == relativePath else { return }; load() }
 
     func save() { if let data = try? JSONEncoder().encode(config) { CloudSyncManager.shared.ignoreNextUpdate(relativePath: relativePath); CloudFileManager.shared.saveDual(data: data, folder: .records, fileName: fileName) } }
-    func load() { DispatchQueue.main.async { [weak self] in guard let self = self else { return }; if let data = CloudFileManager.shared.smartLoad(folder: .records, fileName: self.fileName), let decoded = try? JSONDecoder().decode(GlobalConfig.self, from: data) { self.config = decoded; self.ensureDefaultRules() } else { self.ensureDefaultRules() } } }
+    func load() {
+        let fileName = self.fileName
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let data = CloudFileManager.shared.smartLoad(folder: .records, fileName: fileName)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if let data, let decoded = try? JSONDecoder().decode(GlobalConfig.self, from: data) {
+                    self.config = decoded
+                }
+                self.ensureDefaultRules()
+            }
+        }
+    }
     private func ensureDefaultRules() { if config.numberingConfigs.isEmpty { config.numberingConfigs = LPGlobalStyle.default.numberingConfigs }; if config.quickInputRules.isEmpty { config.quickInputRules = [LPQuickInputRule(trigger: "==", endTrigger: "==", replacementPrefix: "<mark>", replacementSuffix: "</mark>", isPair: true), LPQuickInputRule(trigger: "\\1", replacementPrefix: "①", replacementSuffix: nil, isPair: false)] } }
 
     func captureSyncPackage() -> SyncPackage? { guard let session = config.currentSession else { return nil }; return SyncPackage(studentName: session.studentName, journalURL: session.journalURL, dirtyIDs: self.dirtyPacketIDs, affectedSourceIDs: self.affectedSourceIDs, planNames: session.lessonPlanNames, pdfConfig: (session.pdfExportPath, session.pdfExportBookmark), isAutoMasterSyncEnabled: config.isAutoMasterSyncEnabled) }
@@ -18566,7 +18593,9 @@ struct TimeTrackerApp: App {
                 PomodoroManager.shared.setup(timeStore: timeStore, settingsStore: settingsStore)
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    CloudFileManager.shared.cleanLegacyStateFile()
+                    DispatchQueue.global(qos: .utility).async {
+                        CloudFileManager.shared.cleanLegacyStateFile()
+                    }
                     Task { await purchaseManager.updatePurchaseStatus(); await purchaseManager.loadProducts() }
                     Task { await CloudFileManager.shared.restoreAllMirroredData() }
                     CloudSyncManager.shared.startObserving()
@@ -19439,6 +19468,8 @@ class TimeStore: ObservableObject {
     
     var reloadWorkItem: DispatchWorkItem?
     var pendingReload = false
+    private var isLoadInProgress = false
+    private var recordsRevision = 0
     var loadRetryCount = 0
     let maxLoadRetries = 3
     
@@ -19466,6 +19497,11 @@ extension TimeStore {
         guard let userInfo = notification.userInfo,
               let path = userInfo["path"] as? String,
               path == "记录/\(recordsFileName)" else { return }
+
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.handleCloudFileChange(notification) }
+            return
+        }
         
         pendingReload = true
         reloadWorkItem?.cancel()
@@ -19484,23 +19520,41 @@ extension TimeStore {
     }
     
     func load() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.load() }
+            return
+        }
+        if isLoadInProgress {
+            pendingReload = true
+            return
+        }
+        isLoadInProgress = true
+        pendingReload = false
+        let startingRevision = recordsRevision
         self.lock.lock()
         self.isSyncingFromCloud = true
         self.lock.unlock()
         
-        DispatchQueue.main.async { [weak self] in
+        let fileName = recordsFileName
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            
-            let loadedData = CloudFileManager.shared.smartLoad(folder: .records, fileName: self.recordsFileName)
-            
-            if let d = loadedData, let loadedRecords = try? JSONDecoder().decode([TimeRecord].self, from: d) {
+            let loadedData = CloudFileManager.shared.smartLoad(folder: .records, fileName: fileName)
+            let loadedRecords = loadedData.flatMap { try? JSONDecoder().decode([TimeRecord].self, from: $0) }
+            let cloudURL = CloudFileManager.shared.getCloudDir(.records).appendingPathComponent(fileName)
+            let cloudModDate = (try? cloudURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            DispatchQueue.main.async {
+            if startingRevision != self.recordsRevision {
+                self.isLoadInProgress = false
+                self.isSyncingFromCloud = false
+                if self.pendingReload { self.load() }
+                return
+            }
+            if let loadedRecords {
                 self.lock.lock()
                 self.records = loadedRecords
                 self.isFreshLaunch = false
                 self.hasSuccessfullyLoaded = true
-                
-                let cloudURL = CloudFileManager.shared.getCloudDir(.records).appendingPathComponent(self.recordsFileName)
-                if let cloudModDate = (try? cloudURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate {
+                if let cloudModDate {
                     self.lastSuccessfulCloudLoadDate = cloudModDate
                 }
                 self.lock.unlock()
@@ -19509,24 +19563,24 @@ extension TimeStore {
                 self.syncToAppGroup()
                 self.objectWillChange.send()
                 
-                self.lock.lock()
                 self.isSyncingFromCloud = false
-                self.lock.unlock()
+                self.loadRetryCount = 0
             } else {
-                self.lock.lock()
                 self.isSyncingFromCloud = false
-                self.lock.unlock()
-                
-                if self.loadRetryCount < self.maxLoadRetries {
+                if !self.pendingReload && self.loadRetryCount < self.maxLoadRetries {
                     self.loadRetryCount += 1
                     DispatchQueue.main.asyncAfter(deadline: .now() + Double(self.loadRetryCount) * 0.5) { self.load() }
                 }
+            }
+            self.isLoadInProgress = false
+            if self.pendingReload { self.load() }
             }
         }
     }
 
     func save() {
         if isSyncingFromCloud || isInitialLoading { return }
+        recordsRevision += 1
         
         guard hasSuccessfullyLoaded else {
             print("[Sync] 尚未完成安全加载，跳过保存以保护数据。")
@@ -26616,7 +26670,28 @@ final class CloudFileManager: @unchecked Sendable {
     
     private let legacyStateFileName = "currentRecordState_v20.json"
     
-    private var iCloudRoot: URL? { FileManager.default.url(forUbiquityContainerIdentifier: nil)?.appendingPathComponent("Documents") }
+    // 【启动优化】：url(forUbiquityContainerIdentifier:) 每次调用都要和 iCloud 守护进程同步握手，
+    // 首次调用（尤其是刚重新签名编译后）可能阻塞数秒。缓存解析结果，避免 getCloudDir 高频重复握手。
+    private let iCloudRootLock = NSLock()
+    private var cachedICloudRoot: URL?
+
+    private var iCloudRoot: URL? {
+        iCloudRootLock.lock()
+        if let cached = cachedICloudRoot {
+            iCloudRootLock.unlock()
+            return cached
+        }
+        iCloudRootLock.unlock()
+
+        guard let root = FileManager.default.url(forUbiquityContainerIdentifier: nil)?.appendingPathComponent("Documents") else {
+            return nil
+        }
+
+        iCloudRootLock.lock()
+        cachedICloudRoot = root
+        iCloudRootLock.unlock()
+        return root
+    }
     
     private var localRoot: URL {
         let urls = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
