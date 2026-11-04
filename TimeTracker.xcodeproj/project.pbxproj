@@ -465,7 +465,8 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TimeTrackerWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "李知本时间管理器";
+				INFOPLIST_KEY_CFBundleDisplayName = "李知本·时间";
+                INFOPLIST_KEY_CFBundleName = "李知本·时间";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
@@ -517,7 +518,8 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TimeTrackerWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "李知本时间管理器";
+				INFOPLIST_KEY_CFBundleDisplayName = "李知本·时间";
+                INFOPLIST_KEY_CFBundleName = "李知本·时间";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
@@ -699,7 +701,8 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TimeTracker/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "李知本时间管理器";
+				INFOPLIST_KEY_CFBundleDisplayName = "李知本·时间";
+                INFOPLIST_KEY_CFBundleName = "李知本·时间";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "需要在日历中显示和管理您的日程安排";
@@ -763,7 +766,8 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TimeTracker/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "李知本时间管理器";
+				INFOPLIST_KEY_CFBundleDisplayName = "李知本·时间";
+                INFOPLIST_KEY_CFBundleName = "李知本·时间";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "需要在日历中显示和管理您的日程安排";
