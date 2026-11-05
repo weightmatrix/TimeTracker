@@ -26903,7 +26903,46 @@ final class CloudFileManager: @unchecked Sendable {
     func moveCategoryDual(oldName: String, newName: String) { let co = getCloudDir(.tables).appendingPathComponent(oldName), cn = getCloudDir(.tables).appendingPathComponent(newName); let lo = getLocalMirrorDir(.tables).appendingPathComponent(oldName), ln = getLocalMirrorDir(.tables).appendingPathComponent(newName); if FileManager.default.fileExists(atPath: lo.path) { try? FileManager.default.moveItem(at: lo, to: ln) }; NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: co, options: .forMoving, writingItemAt: cn, options: .forReplacing, error: nil) { ns, nd in try? FileManager.default.moveItem(at: ns, to: nd) } }
     func deleteCategoryDual(categoryName: String) { let l = getLocalMirrorDir(.tables).appendingPathComponent(categoryName); if let files = try? FileManager.default.contentsOfDirectory(at: l, includingPropertiesForKeys: nil) { for file in files where file.pathExtension == "csv" { deleteTableDual(categoryName: categoryName, fileName: file.lastPathComponent) } }; try? FileManager.default.removeItem(at: l); Task { await coordinatedDelete(at: getCloudDir(.tables).appendingPathComponent(categoryName)) } }
     func deleteTableDual(categoryName: String, fileName: String) { let folder = SubFolder.tables; let subPath = "\(categoryName)/\(fileName)"; let c = getCloudDir(folder).appendingPathComponent(subPath), l = getLocalMirrorDir(folder).appendingPathComponent(subPath); if FileManager.default.fileExists(atPath: l.path) { try? FileManager.default.removeItem(at: l) }; Task { await coordinatedWrite(data: Data(), to: getTombstoneURL(folder: folder, fileName: subPath)); await coordinatedDelete(at: c) } }
-    func restoreAllMirroredData() async { for folder in SubFolder.allCases { let localDir = getLocalMirrorDir(folder), cloudDir = getCloudDir(folder); guard let enumerator = FileManager.default.enumerator(at: localDir, includingPropertiesForKeys: nil) else { continue }; while let localFile = enumerator.nextObject() as? URL { let pathString = localFile.path; if pathString.hasSuffix(tombstoneSuffix) { continue }; if let range = pathString.range(of: "/\(folder.rawValue)/") { let rel = String(pathString[range.upperBound...]), target = cloudDir.appendingPathComponent(rel); if FileManager.default.fileExists(atPath: getTombstoneURL(folder: folder, fileName: rel).path) { try? FileManager.default.removeItem(at: localFile); continue }; if !FileManager.default.fileExists(atPath: target.path) { if let data = try? Data(contentsOf: localFile) { await coordinatedWrite(data: data, to: target); updateWatermark(folder: folder, fileName: rel) } } } } } }
+    func restoreAllMirroredData() async {
+        let folders = SubFolder.allCases.map { (folder: $0, name: $0.rawValue) }
+        let appName = appFolderName
+        let tombstoneName = tombstoneDirName
+        let suffix = tombstoneSuffix
+
+        await Task.detached(priority: .background) { [self] in
+            let fm = FileManager.default
+            let localRoot = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(appName)
+            let cloudRoot = fm.url(forUbiquityContainerIdentifier: nil)?.appendingPathComponent("Documents")
+                ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(appName)
+            let tombstones = cloudRoot.appendingPathComponent(tombstoneName)
+            try? fm.createDirectory(at: tombstones, withIntermediateDirectories: true)
+
+            for entry in folders {
+                let localDir = localRoot.appendingPathComponent(entry.name)
+                let cloudDir = cloudRoot.appendingPathComponent(entry.name)
+                try? fm.createDirectory(at: localDir, withIntermediateDirectories: true)
+                try? fm.createDirectory(at: cloudDir, withIntermediateDirectories: true)
+                guard let enumerator = fm.enumerator(at: localDir, includingPropertiesForKeys: nil) else { continue }
+                let prefix = localDir.path + "/"
+                while let localFile = enumerator.nextObject() as? URL {
+                    let path = localFile.path
+                    guard path.hasPrefix(prefix), !path.hasSuffix(suffix) else { continue }
+                    let relativePath = String(path.dropFirst(prefix.count))
+                    let safeName = relativePath.replacingOccurrences(of: "/", with: "_")
+                    let tombstone = tombstones.appendingPathComponent("\(entry.name)_\(safeName)\(suffix)")
+                    if fm.fileExists(atPath: tombstone.path) {
+                        try? fm.removeItem(at: localFile)
+                        continue
+                    }
+                    let target = cloudDir.appendingPathComponent(relativePath)
+                    guard !fm.fileExists(atPath: target.path), let data = try? Data(contentsOf: localFile) else { continue }
+                    await coordinatedWrite(data: data, to: target)
+                    updateWatermark(folder: entry.folder, fileName: relativePath)
+                }
+            }
+        }.value
+    }
 }
 
 // MARK: - 新用户欢迎页 - v1 - 权益告知
