@@ -18622,11 +18622,6 @@ struct TimeTrackerApp: App {
                         CloudFileManager.shared.cleanLegacyStateFile()
                     }
                     Task { await purchaseManager.updatePurchaseStatus(); await purchaseManager.loadProducts() }
-                    Task {
-                        let started = StartupDiagnostics.shared.begin("CloudFileManager.restoreAllMirroredData")
-                        await CloudFileManager.shared.restoreAllMirroredData()
-                        StartupDiagnostics.shared.end("CloudFileManager.restoreAllMirroredData", since: started)
-                    }
                     CloudSyncManager.shared.startObserving()
                     self.calculateInitialHash()
                     self.efficiencyStore.refreshCache(with: timeStore.records)
