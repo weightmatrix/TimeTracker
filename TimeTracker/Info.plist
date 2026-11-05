@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>李知本·时间</string>
+	<key>CFBundleName</key>
+	<string>李知本·时间</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.com.Han.TimeTracker</key>

@@ -18589,6 +18589,18 @@ struct TimeTrackerApp: App {
             
             .preferredColorScheme(.dark)
             .onAppear {
+                #if os(macOS) && !targetEnvironment(macCatalyst)
+                if let appMenu = NSApp.mainMenu?.items.first?.submenu {
+                    let servicesMenu = NSApp.servicesMenu
+                    if let servicesItem = appMenu.items.first(where: {
+                        (servicesMenu != nil && $0.submenu === servicesMenu) ||
+                        $0.title == "服务" || $0.title == "Services"
+                    }) {
+                        appMenu.removeItem(servicesItem)
+                    }
+                    NSApp.servicesMenu = nil
+                }
+                #endif
                 timeStore.efficiencyStore = efficiencyStore
                 PomodoroManager.shared.setup(timeStore: timeStore, settingsStore: settingsStore)
                 
