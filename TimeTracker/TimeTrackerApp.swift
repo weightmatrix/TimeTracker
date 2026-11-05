@@ -504,9 +504,7 @@ struct PaywallView: View {
                 // 权益列表
                 VStack(alignment: .leading, spacing: 18) {
                     FeatureRow(icon: "calendar.badge.clock", title: "无限回顾", desc: "查看 30 天前的所有历史记录")
-                    FeatureRow(icon: "tablecells.fill", title: "海量档案", desc: "解除 2 个表格的数量限制")
                     FeatureRow(icon: "timer", title: "精美皮肤", desc: "解锁全套动态计时器样式")
-                    FeatureRow(icon: "photo.fill", title: "无水印导出", desc: "图片导出更清爽、更专业")
                 }.padding(.horizontal, 30)
                 
                 Spacer()
@@ -1915,8 +1913,6 @@ class BackupManager {
         let snapshotFolderName = "FullSnapshot_\(timestamp)"
         let destinationURL = getPhysicalSnapshotsDir().appendingPathComponent(snapshotFolderName)
         
-        // 核心源头：本地镜像根目录（包含 记录/表格/模板/教案/设置）
-        // 通过 CloudFileManager 的 records 目录向上推一级得到根目录
         let sourceURL = CloudFileManager.shared.getLocalMirrorDir(.records).deletingLastPathComponent()
         
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -1927,7 +1923,6 @@ class BackupManager {
                     try self.fm.removeItem(at: destinationURL)
                 }
                 
-                // 执行整箱物理拷贝 (简单粗暴，包含所有子文件和图片)
                 try self.fm.copyItem(at: sourceURL, to: destinationURL)
                 
                 print("[BackupManager] ✅ 物理全量快照已保存: \(snapshotFolderName)")
@@ -2117,6 +2112,15 @@ struct UniversalBackupData: Codable, Sendable {
     let backupDate: Date
     var appVersion: String = "1.0"
     let note: String?
+}
+
+struct TimerBackupData: Codable {
+    let records: [TimeRecord]
+    let efficiencyData: [String: DailyEfficiency]
+    let targetHours: Int
+    let targetEfficiency: Int
+    let appSettings: AppSettings
+    let backupDate: Date
 }
 
 
@@ -18564,14 +18568,10 @@ struct TimeTrackerApp: App {
     @StateObject private var efficiencyStore = EfficiencyStore()
     @StateObject private var taskStore = TaskStore()
     @StateObject private var calendarStore = CalendarStore()
-    @StateObject private var archiveStore = ArchiveStore()
     @StateObject private var settingsStore: GlobalSettingsStore
     @StateObject private var purchaseManager: PurchaseManager
     @StateObject private var detailedCategoryStore = DetailedCategoryStore()
     
-    @StateObject private var teachingStore = TeachingStore.shared
-    
-    @State private var lastBackupHash: Int = 0
     let syncManager = CloudSyncManager.shared
     
     init() {
@@ -18594,11 +18594,9 @@ struct TimeTrackerApp: App {
             .environmentObject(efficiencyStore)
             .environmentObject(taskStore)
             .environmentObject(calendarStore)
-            .environmentObject(archiveStore)
             .environmentObject(settingsStore)
             .environmentObject(purchaseManager)
             .environmentObject(detailedCategoryStore)
-            .environmentObject(teachingStore)
             
             .preferredColorScheme(.dark)
             .onAppear {
@@ -18625,7 +18623,6 @@ struct TimeTrackerApp: App {
                     }
                     Task { await purchaseManager.updatePurchaseStatus(); await purchaseManager.loadProducts() }
                     CloudSyncManager.shared.startObserving()
-                    self.calculateInitialHash()
                     self.efficiencyStore.refreshCache(with: timeStore.records)
                     StartupDiagnostics.shared.mark("DelayedStartup.end")
                 }
@@ -18639,37 +18636,8 @@ struct TimeTrackerApp: App {
         }
     }
     
-    private func calculateInitialHash() {
-        let data = generateBackupData()
-        self.lastBackupHash = "\(data.records.count)_\(data.archiveCategories.count)".hashValue
-    }
-    
-    private func generateBackupData() -> UniversalBackupData {
-        return UniversalBackupData(
-            records: timeStore.records,
-            efficiencyData: efficiencyStore.dailyData,
-            targetHours: efficiencyStore.targetHours,
-            targetEfficiency: efficiencyStore.targetEfficiency,
-            archiveCategories: archiveStore.categories,
-            archiveTemplates: archiveStore.templates,
-            archiveSmartViews: archiveStore.smartViews,
-            unmatchedTables: archiveStore.unmatchedTables,
-            taskLists: archiveStore.taskLists,
-            appSettings: settingsStore.config,
-            backupDate: Date(),
-            note: "系统快照"
-        )
-    }
-    
-    // 【189号核心修改】：物理化自动备份逻辑
     private func performAutoBackup() {
-        // 不再依赖 JSON 序列化和哈希比对，直接进行物理文件夹拷贝。
-        // 这虽然相对“沉重”，但能绝对保证教案母本等物理文件不丢失。
         BackupManager.shared.saveFullFolderSnapshot()
-        
-        // 同时更新一次哈希，保持旧逻辑的兼容性（如果未来需要比对）
-        let backupObj = generateBackupData()
-        self.lastBackupHash = "\(backupObj.records.count)_\(backupObj.archiveCategories.count)".hashValue
     }
 }
 
@@ -20220,8 +20188,14 @@ class CloudSyncManager: ObservableObject {
         
         let q = NSMetadataQuery()
         q.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
-        // 监听所有相关文件类型
-        q.predicate = NSPredicate(format: "%K LIKE '*.json' OR %K LIKE '*.csv'", NSMetadataItemFSNameKey, NSMetadataItemFSNameKey)
+        let activeFileNames = [
+            "timeRecords_v20.json", "efficiency_data_final_v20.json",
+            "weekly_targets_v20.json", "efficiency_settings_v20.json",
+            "sub_categories_config.json", "global_settings.json"
+        ]
+        q.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: activeFileNames.map {
+            NSPredicate(format: "%K == %@", NSMetadataItemFSNameKey, $0)
+        })
         
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(processUpdates), name: .NSMetadataQueryDidFinishGathering, object: q)
@@ -25367,7 +25341,6 @@ struct MainView: View {
     @EnvironmentObject var efficiencyStore: EfficiencyStore
     @EnvironmentObject var settingsStore: GlobalSettingsStore
     @EnvironmentObject var purchaseManager: PurchaseManager
-    @EnvironmentObject var teachingStore: TeachingStore
     
     @State private var showPaywall = false
     @State private var algorithmDebugTarget: TimeStore.AlgorithmDebugData?
@@ -25375,9 +25348,9 @@ struct MainView: View {
     var headerTitle: String {
         switch selectedTab {
         case 0: return I18n.t(.tab_home); case 1: return I18n.t(.tab_tasks)
-        case 2: return I18n.t(.tab_calendar); case 3: return I18n.t(.tab_archives)
+        case 2: return I18n.t(.tab_calendar)
         case 4: return I18n.t(.tab_goals); case 5: return I18n.t(.tab_records)
-        case 6: return I18n.t(.tab_pomo); case 8: return I18n.t(.tab_teaching)
+        case 6: return I18n.t(.tab_pomo)
         case 9: return I18n.t(.tab_mental_math)
         default: return I18n.t(.tab_settings)
         }
@@ -25399,10 +25372,8 @@ struct MainView: View {
                         case 0: HomeView()
                         case 1: TaskListView()
                         case 2: CalendarPageView()
-                        case 3: ArchivesView()
                         case 4: GoalsView()
                         case 5: RecordsView()
-                        case 8: TeachingView()
                         case 9: MentalMathView()
                         case 6:
                             if settingsStore.isProEffective { PomodoroView() }
@@ -25411,17 +25382,15 @@ struct MainView: View {
                         }
                     }
                     .frame(maxHeight: .infinity)
-                    .padding(.bottom, (teachingStore.isAnyClassActive) ? 0 : 80)
+                    .padding(.bottom, 80)
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
                 
-                if !teachingStore.isAnyClassActive {
-                    CustomFloatingTabBar(selectedTab: $selectedTab) {
-                        if selectedTab == 6 && !settingsStore.isProEffective { showPaywall = true }
-                    }
-                    .padding(.bottom, 15)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                CustomFloatingTabBar(selectedTab: $selectedTab) {
+                    if selectedTab == 6 && !settingsStore.isProEffective { showPaywall = true }
                 }
+                .padding(.bottom, 15)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             .sheet(isPresented: $showPaywall) {
                 TTModalSheetContainer(minWidth: 760, minHeight: 620) {
@@ -25613,11 +25582,9 @@ struct CustomFloatingTabBar: View {
             0: TabMeta(id: 0, icon: "house.fill", title: I18n.t(.tab_home), activeColor: .blue),
             1: TabMeta(id: 1, icon: "checkmark.circle.fill", title: I18n.t(.tab_tasks), activeColor: .pink),
             2: TabMeta(id: 2, icon: "calendar", title: I18n.t(.tab_calendar), activeColor: .purple),
-            3: TabMeta(id: 3, icon: "archivebox.fill", title: I18n.t(.tab_archives), activeColor: .indigo),
             4: TabMeta(id: 4, icon: "medal.fill", title: I18n.t(.tab_goals), activeColor: .red),
             5: TabMeta(id: 5, icon: "list.bullet.rectangle.fill", title: I18n.t(.tab_records), activeColor: .orange),
             6: TabMeta(id: 6, icon: "timer", title: I18n.t(.tab_pomo), activeColor: .yellow),
-            8: TabMeta(id: 8, icon: "person.2.fill", title: I18n.t(.tab_teaching), activeColor: .cyan),
             // 【166号修正】：更换为兼容性更好的 SF Symbol，确保状态栏和设置页均可见
             9: TabMeta(id: 9, icon: "number.square.fill", title: I18n.t(.tab_mental_math), activeColor: .green),
             7: TabMeta(id: 7, icon: "gearshape.fill", title: I18n.t(.tab_settings), activeColor: .gray)
@@ -25627,11 +25594,12 @@ struct CustomFloatingTabBar: View {
     static func loadConfig() -> [TabConfigItem] {
         let storedJSON = UserDefaults.standard.string(forKey: "settings_tab_config_v251216") ?? ""
         if let data = storedJSON.data(using: .utf8), let decoded = try? JSONDecoder().decode([TabConfigItem].self, from: data), !decoded.isEmpty {
-            let existingIDs = Set(decoded.map { $0.id }); var final = decoded
-            for i in[0, 1, 2, 3, 4, 5, 6, 8, 9] { if !existingIDs.contains(i) { final.append(TabConfigItem(id: i, isVisible: true)) } }
+            let activeIDs = [0, 1, 2, 4, 5, 6, 9]
+            let existingIDs = Set(decoded.map { $0.id }); var final = decoded.filter { activeIDs.contains($0.id) }
+            for i in activeIDs { if !existingIDs.contains(i) { final.append(TabConfigItem(id: i, isVisible: true)) } }
             return final
         }
-        return[0, 1, 2, 3, 4, 5, 6, 8, 9].map { TabConfigItem(id: $0, isVisible: true) }
+        return [0, 1, 2, 4, 5, 6, 9].map { TabConfigItem(id: $0, isVisible: true) }
     }
     
     var isPadOrMac: Bool {
@@ -28790,9 +28758,7 @@ struct QuickActionGrid: View {
 struct DataManagementView: View {
     @EnvironmentObject var ts: TimeStore
     @EnvironmentObject var es: EfficiencyStore
-    @EnvironmentObject var asStore: ArchiveStore
     @EnvironmentObject var settingsStore: GlobalSettingsStore
-    @EnvironmentObject var teachingStore: TeachingStore
     @EnvironmentObject var detailedCategoryStore: DetailedCategoryStore
     @Environment(\.dismiss) var dismiss
     
@@ -28830,7 +28796,7 @@ struct DataManagementView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("外部备份 (存到文件App)").font(.caption).foregroundColor(.cyan).padding(.leading, 4)
                             HStack(spacing: 12) {
-                                Button { exportAllData() } label: { Label("导出全量数据", systemImage: "square.and.arrow.up.fill").font(.subheadline).bold().frame(maxWidth: .infinity).padding().background(Color.blue.opacity(0.2)).cornerRadius(12) }
+                                Button { exportAllData() } label: { Label("导出计时与效率数据", systemImage: "square.and.arrow.up.fill").font(.subheadline).bold().frame(maxWidth: .infinity).padding().background(Color.blue.opacity(0.2)).cornerRadius(12) }
                                 Button { showFileImporter = true } label: { Label("从文件恢复", systemImage: "square.and.arrow.down.fill").font(.subheadline).bold().frame(maxWidth: .infinity).padding().background(Color.green.opacity(0.2)).cornerRadius(12) }
                             }
                         }
@@ -28870,13 +28836,13 @@ struct DataManagementView: View {
             Button("立即恢复至此状态", role: .destructive) { if let snap = selectedSnapshot { restoreFromSnapshot(snap) } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("【重要】还原将物理替换当前所有数据（含教案、模板、记录等）。操作不可撤销。")
+            Text("还原将替换当前数据。操作不可撤销。")
         }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [UTType.json]) { res in if case .success(let url) = res { restoreFromFile(url) } }
         .alert("提示", isPresented: $showAlert) {
             Button("确定", role: .cancel) { }
             if alertMessage.contains("清空") {
-                Button("确认清空", role: .destructive) { ts.clearAllData(); asStore.emptyRecycleBin(); refreshSnapshots() }
+                Button("确认清空", role: .destructive) { ts.clearAllData(); refreshSnapshots() }
             }
         } message: { Text(alertMessage) }
         .alert("处理结果", isPresented: $showImportResultAlert) { Button("确定", role: .cancel) { } } message: { Text(importAlertMessage) }
@@ -28888,19 +28854,13 @@ struct DataManagementView: View {
     }
 
     func exportAllData() {
-        let backup = UniversalBackupData(
+        let backup = TimerBackupData(
             records: ts.records,
             efficiencyData: es.dailyData,
             targetHours: es.targetHours,
             targetEfficiency: es.targetEfficiency,
-            archiveCategories: asStore.categories,
-            archiveTemplates: asStore.templates,
-            archiveSmartViews: asStore.smartViews,
-            unmatchedTables: asStore.unmatchedTables,
-            taskLists: asStore.taskLists,
             appSettings: settingsStore.config,
-            backupDate: Date(),
-            note: "Exported"
+            backupDate: Date()
         )
         
         if let data = try? JSONEncoder().encode(backup) {
@@ -28925,8 +28885,7 @@ struct DataManagementView: View {
             // 兼容旧版 JSON 格式
             do {
                 let data = try Data(contentsOf: file.url)
-                let backup = try JSONDecoder().decode(UniversalBackupData.self, from: data)
-                performLegacyRestore(backup)
+                try restoreTimerBackup(data)
             } catch {
                 importAlertMessage = "快照格式不受支持: \(error.localizedDescription)"
                 showImportResultAlert = true
@@ -28953,8 +28912,6 @@ struct DataManagementView: View {
                 // 3. 内存重载：指挥所有组件立即重载硬盘新数据
                 ts.load()
                 es.load()
-                asStore.handleCloudUpdate() // 触发档案全量逻辑刷新
-                teachingStore.load()
                 detailedCategoryStore.load()
                 
                 // 4. 反馈
@@ -28977,40 +28934,34 @@ struct DataManagementView: View {
         defer { url.stopAccessingSecurityScopedResource() }
         do {
             let data = try Data(contentsOf: url)
-            let backup = try JSONDecoder().decode(UniversalBackupData.self, from: data)
-            performLegacyRestore(backup)
+            try restoreTimerBackup(data)
         } catch {
             importAlertMessage = "外部文件损坏: \(error.localizedDescription)"
             showImportResultAlert = true
         }
     }
     
-    // 【190号修正】：将原有的 performRestore 逻辑改名为 performLegacyRestore
-    private func performLegacyRestore(_ backup: UniversalBackupData) {
+    private func restoreTimerBackup(_ data: Data) throws {
+        let decoder = JSONDecoder()
+        let backup: TimerBackupData
+        if let current = try? decoder.decode(TimerBackupData.self, from: data) {
+            backup = current
+        } else {
+            let legacy = try decoder.decode(UniversalBackupData.self, from: data)
+            backup = TimerBackupData(records: legacy.records, efficiencyData: legacy.efficiencyData,
+                                     targetHours: legacy.targetHours, targetEfficiency: legacy.targetEfficiency,
+                                     appSettings: legacy.appSettings, backupDate: legacy.backupDate)
+        }
+        performTimerRestore(backup)
+    }
+
+    private func performTimerRestore(_ backup: TimerBackupData) {
         DispatchQueue.main.async {
             ts.records = backup.records; ts.save()
             es.importData(data: backup.efficiencyData, tH: backup.targetHours, tE: backup.targetEfficiency)
-            asStore.categories = backup.archiveCategories
-            asStore.templates = backup.archiveTemplates
-            asStore.smartViews = backup.archiveSmartViews
-            asStore.unmatchedTables = backup.unmatchedTables
-            asStore.taskLists = backup.taskLists
             settingsStore.config = backup.appSettings
-            
-            // 物理恢复（维持旧逻辑，针对 JSON 备份的情况）
-            if let d = try? JSONEncoder().encode(backup.archiveTemplates) { CloudFileManager.shared.saveDual(data: d, folder: .templates, fileName: "archives_templates.json") }
-            if let d = try? JSONEncoder().encode(backup.archiveSmartViews) { CloudFileManager.shared.saveDual(data: d, folder: .templates, fileName: "archives_smart.json") }
-            for cat in backup.archiveCategories {
-                for table in cat.tables {
-                    asStore.persistTableChanges(table: table, categoryID: cat.id, oldTitle: table.title)
-                }
-            }
-            let order = backup.archiveCategories.map { $0.title }
-            if let d = try? JSONEncoder().encode(order) { CloudFileManager.shared.saveDual(data: d, folder: .tables, fileName: "archives_category_order.json") }
-            for list in backup.taskLists { asStore.saveTaskList(list) }
-            
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-            importAlertMessage = "✅ 旧版数据已还原！"; showImportResultAlert = true
+            importAlertMessage = "✅ 计时与效率数据已还原！"; showImportResultAlert = true
             NotificationCenter.default.post(name: NSNotification.Name("CloudDataUpdated"), object: nil)
         }
     }
@@ -29190,10 +29141,6 @@ struct FunctionSettingsView: View {
                         
                         NavigationLink(destination: TimerStyleSelectionView()) {
                             Label(I18n.t(.set_style_select), systemImage: "timer")
-                        }
-                        
-                        NavigationLink(destination: TeachingSettingsView()) {
-                            Label("教学设置", systemImage: "graduationcap.fill")
                         }
                         
                         Toggle(isOn: $store.config.isMagnetismEnabled) {
