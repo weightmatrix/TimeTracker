@@ -1294,6 +1294,7 @@ class EfficiencyStore: ObservableObject {
     func load() {
         // 【启动优化】：iCloud 文件读取与 NSFileCoordinator 可能阻塞数秒，
         // 必须放到后台队列执行，避免主线程在启动瞬间卡死。
+        let diagnosticStart = StartupDiagnostics.shared.begin("EfficiencyStore.load")
         let dataName = dataFileName
         let weeklyName = weeklyFileName
         let settingsName = settingsFileName
@@ -1330,6 +1331,7 @@ class EfficiencyStore: ObservableObject {
                         print("[EfficiencyStore] 进入幽灵模式")
                     }
                 }
+                StartupDiagnostics.shared.end("EfficiencyStore.load", since: diagnosticStart)
             }
         }
     }
@@ -2257,8 +2259,10 @@ class ArchiveStore: ObservableObject {
 
     // MARK: - Initialization
     init() {
+        let diagnosticStart = StartupDiagnostics.shared.begin("ArchiveStore.init")
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
+            let loadingStart = StartupDiagnostics.shared.begin("ArchiveStore.backgroundLoad")
             let taskURL = CloudFileManager.shared.getCloudDir(.records).appendingPathComponent("TaskLists")
             try? self.fm.createDirectory(at: taskURL, withIntermediateDirectories: true)
             let loadedTemplates = self.loadTemplatesData()
@@ -2273,11 +2277,13 @@ class ArchiveStore: ObservableObject {
                 if let loadedUnmatched { self.unmatchedTables = loadedUnmatched }
                 self.ensureSystemFolders()
                 self.scanImportFolder()
+                StartupDiagnostics.shared.end("ArchiveStore.backgroundLoad", since: loadingStart)
             }
         }
         
         NotificationCenter.default.addObserver(self, selector: NSSelectorFromString("handleCloudUpdate"), name: NSNotification.Name("CloudDataUpdated"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleCloudFileChange), name: .CloudFileDidChange, object: nil)
+        StartupDiagnostics.shared.end("ArchiveStore.init", since: diagnosticStart)
     }
 
     // MARK: - Core Internal Methods
@@ -9020,6 +9026,7 @@ class TeachingStore: ObservableObject {
 
     func save() { if let data = try? JSONEncoder().encode(config) { CloudSyncManager.shared.ignoreNextUpdate(relativePath: relativePath); CloudFileManager.shared.saveDual(data: data, folder: .records, fileName: fileName) } }
     func load() {
+        let diagnosticStart = StartupDiagnostics.shared.begin("TeachingStore.load")
         let fileName = self.fileName
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let data = CloudFileManager.shared.smartLoad(folder: .records, fileName: fileName)
@@ -9029,6 +9036,7 @@ class TeachingStore: ObservableObject {
                     self.config = decoded
                 }
                 self.ensureDefaultRules()
+                StartupDiagnostics.shared.end("TeachingStore.load", since: diagnosticStart)
             }
         }
     }
@@ -18565,10 +18573,13 @@ struct TimeTrackerApp: App {
     let syncManager = CloudSyncManager.shared
     
     init() {
+        let diagnosticStart = StartupDiagnostics.shared.begin("TimeTrackerApp.init")
+        StartupDiagnostics.shared.watchMainThread()
         let settings = GlobalSettingsStore()
         let manager = PurchaseManager(settingsStore: settings)
         _settingsStore = StateObject(wrappedValue: settings)
         _purchaseManager = StateObject(wrappedValue: manager)
+        StartupDiagnostics.shared.end("TimeTrackerApp.init", since: diagnosticStart)
     }
     
     var body: some Scene {
@@ -18589,6 +18600,7 @@ struct TimeTrackerApp: App {
             
             .preferredColorScheme(.dark)
             .onAppear {
+                StartupDiagnostics.shared.mark("WindowGroup.onAppear")
                 #if os(macOS) && !targetEnvironment(macCatalyst)
                 if let appMenu = NSApp.mainMenu?.items.first?.submenu {
                     let servicesMenu = NSApp.servicesMenu
@@ -18605,14 +18617,20 @@ struct TimeTrackerApp: App {
                 PomodoroManager.shared.setup(timeStore: timeStore, settingsStore: settingsStore)
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    StartupDiagnostics.shared.mark("DelayedStartup.begin")
                     DispatchQueue.global(qos: .utility).async {
                         CloudFileManager.shared.cleanLegacyStateFile()
                     }
                     Task { await purchaseManager.updatePurchaseStatus(); await purchaseManager.loadProducts() }
-                    Task { await CloudFileManager.shared.restoreAllMirroredData() }
+                    Task {
+                        let started = StartupDiagnostics.shared.begin("CloudFileManager.restoreAllMirroredData")
+                        await CloudFileManager.shared.restoreAllMirroredData()
+                        StartupDiagnostics.shared.end("CloudFileManager.restoreAllMirroredData", since: started)
+                    }
                     CloudSyncManager.shared.startObserving()
                     self.calculateInitialHash()
                     self.efficiencyStore.refreshCache(with: timeStore.records)
+                    StartupDiagnostics.shared.mark("DelayedStartup.end")
                 }
                 
                 NotificationCenter.default.addObserver(forName: NSNotification.Name("TriggerManualFullBackup"), object: nil, queue: .main) { _ in self.performAutoBackup() }
@@ -19488,6 +19506,7 @@ class TimeStore: ObservableObject {
     var currentRecord: TimeRecord? { records.last(where: { $0.isOngoing }) }
     
     init() {
+        StartupDiagnostics.shared.mark("TimeStore.init")
         load()
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { self.isInitialLoading = false }
         scoreTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
@@ -19541,6 +19560,7 @@ extension TimeStore {
             return
         }
         isLoadInProgress = true
+        let diagnosticStart = StartupDiagnostics.shared.begin("TimeStore.load")
         pendingReload = false
         let startingRevision = recordsRevision
         self.lock.lock()
@@ -19559,6 +19579,7 @@ extension TimeStore {
                 self.isLoadInProgress = false
                 self.isSyncingFromCloud = false
                 if self.pendingReload { self.load() }
+                StartupDiagnostics.shared.end("TimeStore.load.stale", since: diagnosticStart)
                 return
             }
             if let loadedRecords {
@@ -19586,6 +19607,7 @@ extension TimeStore {
             }
             self.isLoadInProgress = false
             if self.pendingReload { self.load() }
+            StartupDiagnostics.shared.end("TimeStore.load", since: diagnosticStart)
             }
         }
     }
@@ -20197,6 +20219,7 @@ class CloudSyncManager: ObservableObject {
     
     func startObserving() {
         if query != nil { return }
+        StartupDiagnostics.shared.mark("CloudSyncManager.startObserving")
         
         let q = NSMetadataQuery()
         q.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
@@ -20214,6 +20237,8 @@ class CloudSyncManager: ObservableObject {
     
     @objc private func processUpdates(_ notification: Notification) {
         guard let q = query else { return }
+        let diagnosticStart = StartupDiagnostics.shared.begin("CloudSyncManager.processUpdates count=\(q.results.count)")
+        defer { StartupDiagnostics.shared.end("CloudSyncManager.processUpdates", since: diagnosticStart) }
         
         q.disableUpdates()
         
@@ -26776,6 +26801,9 @@ final class CloudFileManager: @unchecked Sendable {
     }
     
     func smartLoad(folder: SubFolder, fileName: String) -> Data? {
+        let diagnosticEvent = "CloudFileManager.smartLoad \(folder.rawValue)/\(fileName)"
+        let diagnosticStart = StartupDiagnostics.shared.begin(diagnosticEvent)
+        defer { StartupDiagnostics.shared.end(diagnosticEvent, since: diagnosticStart) }
         let localURL = getLocalMirrorDir(folder).appendingPathComponent(fileName)
         let cloudURL = getCloudDir(folder).appendingPathComponent(fileName)
         let tombstoneURL = getTombstoneURL(folder: folder, fileName: fileName)
