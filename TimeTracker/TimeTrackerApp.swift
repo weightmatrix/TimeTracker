@@ -1734,6 +1734,15 @@ class BackupManager {
             } catch { print("单文件备份失败: \(error)") }
         }
     }
+
+    func savePendingRecords(_ data: Data) {
+        let dir = getDirectory(for: "TimeRecordsPending", subID: "Global")
+        let name = "\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).json"
+        do {
+            try data.write(to: dir.appendingPathComponent(name), options: .atomic)
+            rotateBackupsSimple(dir: dir, limit: maxFileHistory)
+        } catch { DebugLogCenter.appendCloud("未同步记录备份失败：\(error.localizedDescription)") }
+    }
     
     func getHistory(module: String, subID: String = "Global") -> [BackupFile] {
         let dir = getDirectory(for: module, subID: subID)
@@ -1865,6 +1874,7 @@ struct TTModalSheetContainer<Content: View>: View {
 
 struct SettingsView: View {
     @EnvironmentObject var ts: TimeStore
+    @ObservedObject private var cloudSync = CloudSyncManager.shared
     @EnvironmentObject var es: EfficiencyStore
     @EnvironmentObject var settingsStore: GlobalSettingsStore
     @EnvironmentObject var purchaseManager: PurchaseManager
@@ -1918,6 +1928,15 @@ struct SettingsView: View {
                     ) {
                         showDataManagement = true
                     }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("iCloud 记录检查").font(.headline).foregroundColor(.white)
+                        Text(cloudSync.recordsCheckMessage).font(.caption).foregroundColor(.gray)
+                        Text(cloudSync.recordsUploadMessage).font(.caption).foregroundColor(.gray)
+                        Button("立即检查") { cloudSync.checkRecordsNow { ts.load() } }
+                            .font(.subheadline).foregroundColor(.cyan)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                        .background(Color.white.opacity(0.08)).cornerRadius(12)
 
                     // 【101号新增】：仅在 Debug 模式下出现的项目
                     #if DEBUG
@@ -2597,7 +2616,10 @@ struct TimeTrackerApp: App {
                 NotificationCenter.default.addObserver(forName: NSNotification.Name("TriggerManualFullBackup"), object: nil, queue: .main) { _ in self.performAutoBackup() }
             }
             .onChange(of: scenePhase) { _, newPhase in
-                if newPhase == .active { settingsStore.load() }
+                if newPhase == .active {
+                    settingsStore.load()
+                    CloudSyncManager.shared.checkRecordsNow { timeStore.load() }
+                }
                 else if newPhase == .background || newPhase == .inactive { performAutoBackup() }
             }
         }
@@ -3302,6 +3324,8 @@ class TimeStore: ObservableObject {
     var pendingReload = false
     private var isLoadInProgress = false
     private var recordsRevision = 0
+    private var loadedCloudHash: String?
+    @Published private(set) var hasUnsyncedRecords = false
     var loadRetryCount = 0
     let maxLoadRetries = 3
     
@@ -3361,6 +3385,10 @@ extension TimeStore {
             pendingReload = true
             return
         }
+        if hasUnsyncedRecords {
+            CloudSyncManager.shared.noteRecordsWriteResult("本机记录尚未写入 iCloud；请从数据管理恢复历史记录后再检查")
+            return
+        }
         isLoadInProgress = true
         let diagnosticStart = StartupDiagnostics.shared.begin("TimeStore.load")
         pendingReload = false
@@ -3372,10 +3400,14 @@ extension TimeStore {
         let fileName = recordsFileName
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            let loadedData = CloudFileManager.shared.smartLoad(folder: .records, fileName: fileName)
+            let pendingSnapshot = CloudFileManager.shared.pendingRecordsSnapshot
+            let pendingData = pendingSnapshot?.data
+            let pendingUnreadable = CloudFileManager.shared.hasPendingRecordsFile && pendingSnapshot == nil
+            let loadedData = pendingUnreadable ? nil : (pendingData ?? CloudFileManager.shared.smartLoad(folder: .records, fileName: fileName))
             let loadedRecords = loadedData.flatMap { try? JSONDecoder().decode([TimeRecord].self, from: $0) }
             let cloudURL = CloudFileManager.shared.getCloudDir(.records).appendingPathComponent(fileName)
             let cloudModDate = (try? cloudURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let cloudIsReadable = CloudFileManager.shared.isCloudRecordsReadable
             DispatchQueue.main.async {
             if startingRevision != self.recordsRevision {
                 self.isLoadInProgress = false
@@ -3389,7 +3421,12 @@ extension TimeStore {
                 self.records = loadedRecords
                 self.isFreshLaunch = false
                 self.hasSuccessfullyLoaded = true
-                if let cloudModDate {
+                self.hasUnsyncedRecords = pendingData != nil
+                self.loadedCloudHash = pendingData != nil ? pendingSnapshot?.expectedCloudHash :
+                    (cloudIsReadable ? loadedData.map(CloudFileManager.hash) : nil)
+                if pendingData != nil {
+                    CloudSyncManager.shared.noteRecordsWriteResult("发现上次未同步的本机记录；已保护，等待手动重试或导出")
+                } else if let cloudModDate {
                     self.lastSuccessfulCloudLoadDate = cloudModDate
                 }
                 self.lock.unlock()
@@ -3402,7 +3439,10 @@ extension TimeStore {
                 self.loadRetryCount = 0
             } else {
                 self.isSyncingFromCloud = false
-                if !self.pendingReload && self.loadRetryCount < self.maxLoadRetries {
+                if pendingUnreadable {
+                    self.hasUnsyncedRecords = true
+                    CloudSyncManager.shared.noteRecordsWriteResult("待同步快照无法读取；已停止载入云端旧记录")
+                } else if !self.pendingReload && self.loadRetryCount < self.maxLoadRetries {
                     self.loadRetryCount += 1
                     DispatchQueue.main.asyncAfter(deadline: .now() + Double(self.loadRetryCount) * 0.5) { self.load() }
                 }
@@ -3417,6 +3457,7 @@ extension TimeStore {
     func save() {
         if isSyncingFromCloud || isInitialLoading { return }
         recordsRevision += 1
+        let saveRevision = recordsRevision
         
         guard hasSuccessfullyLoaded else {
             print("[Sync] 尚未完成安全加载，跳过保存以保护数据。")
@@ -3426,6 +3467,7 @@ extension TimeStore {
         // 【266号核心修改】：将保存快照和磁盘 I/O 移出主线程
         let recordsToSave = self.records
         let lastLoadDateSnapshot = self.lastSuccessfulCloudLoadDate
+        let expectedHash = loadedCloudHash
         
         Task {
             if recordsToSave.isEmpty && lastLoadDateSnapshot != Date.distantPast {
@@ -3434,17 +3476,40 @@ extension TimeStore {
             }
 
             if let d = try? JSONEncoder().encode(recordsToSave) {
-                CloudSyncManager.shared.ignoreNextUpdate(relativePath: "记录/\(recordsFileName)")
-                // saveDual 内部已异步化
-                CloudFileManager.shared.saveDual(data: d, folder: .records, fileName: recordsFileName)
-                
-                // 备份操作同样异步执行
                 BackupManager.shared.saveBackup(data: d, module: "TimeRecords")
-                
+                let result = await Task.detached(priority: .utility) {
+                    CloudFileManager.shared.saveRecordsSafely(data: d, expectedHash: expectedHash, revision: saveRevision)
+                }.value
+                if case .failure = result { BackupManager.shared.savePendingRecords(d) }
                 await MainActor.run {
+                    guard saveRevision == self.recordsRevision else { return }
                     self.efficiencyStore?.refreshCache(with: recordsToSave, forceYesterday: true)
-                    self.lastSuccessfulCloudLoadDate = Date()
+                    switch result {
+                    case .success(false):
+                        break
+                    case .success(true):
+                        self.hasUnsyncedRecords = false
+                        self.loadedCloudHash = CloudFileManager.hash(d)
+                        self.lastSuccessfulCloudLoadDate = Date()
+                        CloudSyncManager.shared.ignoreNextUpdate(relativePath: "记录/\(self.recordsFileName)")
+                        CloudSyncManager.shared.noteRecordsWriteResult("本机已写入 iCloud 文件，等待上传确认")
+                    case .failure(let error):
+                        self.hasUnsyncedRecords = true
+                        CloudSyncManager.shared.noteRecordsWriteResult("云端写入失败：\(error.localizedDescription)；本机历史已保留")
+                    }
                 }
+            }
+        }
+    }
+}
+
+extension TimeStore {
+    func discardPendingRecordsAndReload() {
+        DispatchQueue.global(qos: .utility).async {
+            CloudFileManager.shared.discardPendingRecords()
+            DispatchQueue.main.async {
+                self.hasUnsyncedRecords = false
+                self.load()
             }
         }
     }
@@ -3995,11 +4060,17 @@ extension Notification.Name {
 
 class CloudSyncManager: ObservableObject {
     static let shared = CloudSyncManager()
+    @Published private(set) var recordsCheckMessage = "尚未检查 iCloud 文件"
+    @Published private(set) var recordsUploadMessage = "上传状态未知"
+    @Published private(set) var lastRecordsCheck: Date?
+    @Published private(set) var lastLocalRecordsSave: Date?
+    private var recordsCheckInProgress = false
     private var query: NSMetadataQuery?
     private var debounceTimer: Timer?
     
     // 缓存最后更新时间：Key = relativePath (e.g. "记录/timeRecords_v20.json")
     private var lastKnownUpdateDates: [String: Date] = [:]
+    private var lastKnownDownloadStatuses: [String: String] = [:]
     
     // 忽略列表：Key = relativePath
     private var ignoreList: [String: Date] = [:]
@@ -4042,6 +4113,71 @@ class CloudSyncManager: ObservableObject {
         self.query = q
         print("[CloudSync] 同步雷达已启动 (文件级精准模式)")
     }
+
+    func noteLocalRecordsSave() {
+        DispatchQueue.main.async {
+            self.lastLocalRecordsSave = Date()
+            self.recordsUploadMessage = "本机已保存，等待 iCloud 上传确认"
+        }
+    }
+
+    func noteRecordsWriteResult(_ message: String) {
+        DispatchQueue.main.async { self.recordsUploadMessage = message }
+    }
+
+    /// Checks the local iCloud provider. A successful check does not prove that another device's latest edit arrived.
+    func checkRecordsNow(onReadable: @escaping () -> Void) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.checkRecordsNow(onReadable: onReadable) }
+            return
+        }
+        guard !recordsCheckInProgress else { return }
+        recordsCheckInProgress = true
+        recordsCheckMessage = "正在检查本机 iCloud 文件…"
+        DispatchQueue.global(qos: .utility).async {
+            guard let url = CloudFileManager.shared.iCloudRecordsURL else {
+                self.finishRecordsCheck("iCloud 容器不可用；无法确认远端版本", upload: "上传状态未知")
+                return
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                self.finishRecordsCheck("本机尚无 iCloud 记录文件", upload: "上传状态未知")
+                return
+            }
+            do { try FileManager.default.startDownloadingUbiquitousItem(at: url) }
+            catch { self.finishRecordsCheck("请求下载失败：\(error.localizedDescription)", upload: "上传状态未知"); return }
+            let deadline = Date().addingTimeInterval(12)
+            repeat {
+                let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey,
+                    .ubiquitousItemIsUploadedKey, .ubiquitousItemIsUploadingKey,
+                    .ubiquitousItemDownloadingErrorKey, .ubiquitousItemUploadingErrorKey])
+                if let error = values?.ubiquitousItemDownloadingError {
+                    self.finishRecordsCheck("下载失败：\(error.localizedDescription)", upload: "上传状态未知")
+                    return
+                }
+                if values?.ubiquitousItemDownloadingStatus == .current {
+                    let upload = values?.ubiquitousItemUploadingError.map { "上传失败：\($0.localizedDescription)" } ??
+                        (values?.ubiquitousItemIsUploaded == true ? "本机文件已由 iCloud 标记为已上传" :
+                        (values?.ubiquitousItemIsUploading == true ? "iCloud 正在上传本机文件" : "iCloud 尚未确认本机文件已上传")
+                        )
+                    self.finishRecordsCheck("本机 iCloud 文件可读；无法确认其他设备最新版本", upload: upload)
+                    DispatchQueue.main.async(execute: onReadable)
+                    return
+                }
+                Thread.sleep(forTimeInterval: 0.5)
+            } while Date() < deadline
+            self.finishRecordsCheck("等待 iCloud 下载超时；本机版本可能过旧", upload: "上传状态未知")
+        }
+    }
+
+    private func finishRecordsCheck(_ message: String, upload: String) {
+        DispatchQueue.main.async {
+            self.recordsCheckInProgress = false
+            self.lastRecordsCheck = Date()
+            self.recordsCheckMessage = message
+            self.recordsUploadMessage = upload
+            DebugLogCenter.appendCloud("记录同步检查：\(message)；\(upload)")
+        }
+    }
     
     @objc private func processUpdates(_ notification: Notification) {
         guard let q = query else { return }
@@ -4073,13 +4209,18 @@ class CloudSyncManager: ObservableObject {
             // 2. 检查是否未下载
             if status == NSMetadataUbiquitousItemDownloadingStatusNotDownloaded {
                 try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+                lastKnownDownloadStatuses[relativePath] = status
                 lock.unlock()
                 continue
             }
             
             // 3. 检查是否真的是新变化
             let lastDate = lastKnownUpdateDates[relativePath] ?? Date.distantPast
-            if modDate.timeIntervalSince(lastDate) > 1.1 {
+            let previousStatus = lastKnownDownloadStatuses[relativePath]
+            let downloadCompleted = (previousStatus == NSMetadataUbiquitousItemDownloadingStatusNotDownloaded && status != previousStatus)
+                || (previousStatus == NSMetadataUbiquitousItemDownloadingStatusDownloaded && status == NSMetadataUbiquitousItemDownloadingStatusCurrent)
+            lastKnownDownloadStatuses[relativePath] = status
+            if modDate.timeIntervalSince(lastDate) > 1.1 || downloadCompleted {
                 lastKnownUpdateDates[relativePath] = modDate
                 globalRefreshNeeded = true
                 
@@ -7382,6 +7523,25 @@ final class CloudFileManager: @unchecked Sendable {
     private let tombstoneDirName = ".tombstones"
     private let tombstoneSuffix = ".dead"
     private let watermarkKey = "cloud_sync_watermarks"
+    private let recordsWriteQueue = DispatchQueue(label: "TimeTracker.records.cloudWrite")
+    private var lastWrittenRecordsHash: String?
+    private var latestAttemptedRecordsRevision = 0
+    private var pendingRecordsURL: URL { getBackupsDir().appendingPathComponent("PendingCurrentTimeRecords.json") }
+
+    struct PendingRecordsSnapshot: Codable {
+        let data: Data
+        let expectedCloudHash: String?
+    }
+
+    var pendingRecordsSnapshot: PendingRecordsSnapshot? {
+        guard let data = try? Data(contentsOf: pendingRecordsURL) else { return nil }
+        return try? JSONDecoder().decode(PendingRecordsSnapshot.self, from: data)
+    }
+    var hasPendingRecordsFile: Bool { FileManager.default.fileExists(atPath: pendingRecordsURL.path) }
+
+    func discardPendingRecords() {
+        recordsWriteQueue.sync { try? FileManager.default.removeItem(at: pendingRecordsURL) }
+    }
     
     private let legacyStateFileName = "currentRecordState_v20.json"
     
@@ -7406,6 +7566,66 @@ final class CloudFileManager: @unchecked Sendable {
         cachedICloudRoot = root
         iCloudRootLock.unlock()
         return root
+    }
+
+    var iCloudRecordsURL: URL? { iCloudRoot?.appendingPathComponent("记录/timeRecords_v20.json") }
+
+    var isCloudRecordsReadable: Bool {
+        guard let url = iCloudRecordsURL, FileManager.default.fileExists(atPath: url.path) else { return false }
+        let status = (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus
+        return status == .current
+    }
+
+    static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+
+    func saveRecordsSafely(data: Data, expectedHash: String?, revision: Int) -> Result<Bool, Error> {
+        recordsWriteQueue.sync {
+            do {
+                if revision < latestAttemptedRecordsRevision { return .success(false) }
+                latestAttemptedRecordsRevision = revision
+                let baselineHash = lastWrittenRecordsHash ?? expectedHash
+                let snapshot = PendingRecordsSnapshot(data: data, expectedCloudHash: baselineHash)
+                try JSONEncoder().encode(snapshot).write(to: pendingRecordsURL, options: .atomic)
+                let localURL = getLocalMirrorDir(.records).appendingPathComponent("timeRecords_v20.json")
+                try data.write(to: localURL, options: .atomic)
+                CloudSyncManager.shared.noteLocalRecordsSave()
+                guard let cloudURL = iCloudRecordsURL else {
+                    throw NSError(domain: "TimeTrackerSync", code: 1, userInfo: [NSLocalizedDescriptionKey: "iCloud 容器不可用"])
+                }
+                let folder = cloudURL.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: cloudURL.path) {
+                    let status = try cloudURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus
+                    guard status == .current else {
+                        throw NSError(domain: "TimeTrackerSync", code: 2, userInfo: [NSLocalizedDescriptionKey: "云端文件尚未下载完成"])
+                    }
+                }
+                var coordinatorError: NSError?
+                var writeError: Error?
+                NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: cloudURL, options: .forReplacing, error: &coordinatorError) { url in
+                    do {
+                        if let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !conflicts.isEmpty {
+                            throw NSError(domain: "TimeTrackerSync", code: 3, userInfo: [NSLocalizedDescriptionKey: "iCloud 存在未解决的版本冲突"])
+                        }
+                        if FileManager.default.fileExists(atPath: url.path) {
+                            let currentHash = Self.hash(try Data(contentsOf: url))
+                            guard currentHash == expectedHash || currentHash == lastWrittenRecordsHash || currentHash == Self.hash(data) else {
+                                throw NSError(domain: "TimeTrackerSync", code: 4, userInfo: [NSLocalizedDescriptionKey: "云端文件与上次读取版本不同"])
+                            }
+                        } else if expectedHash != nil {
+                            throw NSError(domain: "TimeTrackerSync", code: 5, userInfo: [NSLocalizedDescriptionKey: "云端文件意外消失"])
+                        }
+                        try data.write(to: url, options: .atomic)
+                    } catch { writeError = error }
+                }
+                if let error = coordinatorError { throw error }
+                if let error = writeError { throw error }
+                lastWrittenRecordsHash = Self.hash(data)
+                try? FileManager.default.removeItem(at: pendingRecordsURL)
+                updateWatermark(folder: .records, fileName: "timeRecords_v20.json")
+                return .success(true)
+            } catch { return .failure(error) }
+        }
     }
     
     private var localRoot: URL {
@@ -9418,6 +9638,8 @@ struct DataManagementView: View {
     @State private var showShare = false
     @State private var exportURL: URL?
     @State private var showFileImporter = false
+    @State private var showPendingHistory = false
+    @State private var showDiscardPending = false
     @State private var importAlertMessage = ""
     @State private var showImportResultAlert = false
     
@@ -9445,6 +9667,19 @@ struct DataManagementView: View {
                                 Button { exportAllData() } label: { Label("导出计时与效率数据", systemImage: "square.and.arrow.up.fill").font(.subheadline).bold().frame(maxWidth: .infinity).padding().background(Color.blue.opacity(0.2)).cornerRadius(12) }
                                 Button { showFileImporter = true } label: { Label("从文件恢复", systemImage: "square.and.arrow.down.fill").font(.subheadline).bold().frame(maxWidth: .infinity).padding().background(Color.green.opacity(0.2)).cornerRadius(12) }
                             }
+                        }
+
+                        Button { showPendingHistory = true } label: {
+                            Label("查看未同步记录备份", systemImage: "externaldrive.badge.exclamationmark")
+                                .font(.subheadline).frame(maxWidth: .infinity).padding()
+                                .background(Color.orange.opacity(0.15)).cornerRadius(12)
+                        }
+                        if ts.hasUnsyncedRecords {
+                            HStack {
+                                Button("重试上传本机记录") { ts.save() }
+                                Spacer()
+                                Button("放弃待同步副本", role: .destructive) { showDiscardPending = true }
+                            }.font(.subheadline)
                         }
 
                         VStack(alignment: .leading, spacing: 10) {
@@ -9477,6 +9712,16 @@ struct DataManagementView: View {
             }
         }
         .onAppear { refreshSnapshots() }
+        .sheet(isPresented: $showPendingHistory) {
+            GeneralHistoryView(moduleName: "TimeRecordsPending", title: "未同步记录备份") { backup in
+                ts.restore(from: backup)
+            }
+        }
+        .confirmationDialog("放弃待同步副本？", isPresented: $showDiscardPending) {
+            Button("放弃并重新读取 iCloud", role: .destructive) { ts.discardPendingRecordsAndReload() }
+        } message: {
+            Text("本机未同步记录仍保留在历史备份中。建议先分享 JSON 文件。")
+        }
         .background(ShareSheet(isPresented: $showShare, items: exportURL != nil ? [exportURL!] : []))
         .confirmationDialog("确认回滚？", isPresented: $showActionSheet, titleVisibility: .visible) {
             Button("立即恢复至此状态", role: .destructive) { if let snap = selectedSnapshot { restoreFromSnapshot(snap) } }
@@ -9626,7 +9871,8 @@ struct DataManagementView: View {
                                               } else {
                                                   List {
                                                       ForEach(backups) { backup in
-                                                          Button { onRestore(backup); dismiss() } label: {
+                                                          HStack {
+                                                              Button { onRestore(backup); dismiss() } label: {
                                                               HStack {
                                                                   VStack(alignment: .leading, spacing: 4) {
                                                                       Text(getTimeAgo(backup.date)).font(.headline).foregroundColor(.white)
@@ -9635,7 +9881,11 @@ struct DataManagementView: View {
                                                                   Spacer()
                                                                   Text("恢复").font(.subheadline).fontWeight(.bold).foregroundColor(.orange).padding(.horizontal, 12).padding(.vertical, 6).background(Capsule().stroke(Color.orange, lineWidth: 1))
                                                               }.contentShape(Rectangle())
-                                                          }.buttonStyle(.plain)
+                                                              }.buttonStyle(.plain)
+                                                              ShareLink(item: backup.url) {
+                                                                  Image(systemName: "square.and.arrow.up").foregroundColor(.cyan)
+                                                              }
+                                                          }
                                                       }
                                                   }.scrollContentBackground(.hidden)
                                               }
