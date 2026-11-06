@@ -332,7 +332,7 @@ struct I18n {
         case .set_cal_auto: return isChinese ? "日程自动切换" : "Auto Switch"
         case .set_show_completed: return isChinese ? "显示已完成任务" : "Show Completed"
         case .set_timer_magnet: return isChinese ? "时间轴磁吸" : "Magnet"
-        case .app_name: return isChinese ? "李知本时间管理" : "TimeTracker"
+        case .app_name: return isChinese ? "李知本·时间" : "TimeTracker"
         case .subtitle_timer: return isChinese ? "时间记录器" : "Time Tracker"
         case .save_record: return isChinese ? "保存记录" : "Save"
         default: return key.stringKey
@@ -444,7 +444,7 @@ struct PaywallView: View {
                 
                 // 标题与状态
                 VStack(spacing: 8) {
-                    Text("李知本时间管理 Pro").font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(.white)
+                    Text("李知本·时间 Pro").font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(.white)
                     
                     if store.config.isPro {
                         Text("🎉 您已是尊贵的 Pro 用户").font(.caption).foregroundColor(.green)
@@ -2406,7 +2406,7 @@ struct ManualData {
     </head>
     <body>
         <h1>功能使用手册</h1>
-        <p>欢迎使用李知本时间管理。本手册将帮助您了解每一个功能模块和操作细节。</p>
+        <p>欢迎使用李知本·时间。本手册将帮助您了解每一个功能模块和操作细节。</p>
 
         <h2>1. 首页 (Home)</h2>
         <h3>顶部区域</h3>
@@ -7587,7 +7587,7 @@ struct OnboardingView: View {
                 
                 // 标题
                 VStack(spacing: 12) {
-                    Text("欢迎使用 李知本时间管理")
+                    Text("欢迎使用 李知本·时间")
                         .font(.title).fontWeight(.heavy)
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
