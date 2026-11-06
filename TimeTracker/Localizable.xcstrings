@@ -7,31 +7,13 @@
     "-" : {
 
     },
-    ":" : {
-
-    },
-    "..." : {
-
-    },
     "\"%@\"" : {
-
-    },
-    "“%@”" : {
-
-    },
-    "\"%@\" 的文件" : {
-
-    },
-    "“%@”下的所有表格将迁移至目标模板，并自动对齐数据。\n\n当前模板将被永久删除。" : {
 
     },
     "“全部”视图设置" : {
 
     },
     "(%lld)" : {
-
-    },
-    "【重要】还原将物理替换当前所有数据（含教案、模板、记录等）。操作不可撤销。" : {
 
     },
     "#" : {
@@ -69,12 +51,6 @@
         }
       }
     },
-    "%lld 个表格" : {
-
-    },
-    "%lld 个表格文件" : {
-
-    },
     "%lld 个词条结构" : {
 
     },
@@ -95,9 +71,6 @@
       }
     },
     "•" : {
-
-    },
-    "• %@" : {
 
     },
     "+" : {
@@ -131,12 +104,6 @@
 
     },
     "2.2 选择日期自动填写项 (可选)" : {
-
-    },
-    "3. 选择教案母本" : {
-
-    },
-    "4. 选择教辅 (可选)" : {
 
     },
     "5. 设置 PDF 导出路径" : {
@@ -539,591 +506,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "李知本"
-          }
-        }
-      }
-    },
-    "arch_autofill" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "تعبئة تلقائية"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatisches Ausfüllen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto Fill"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Autocompletar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remplissage auto"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Riempimento automatico"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自動入力"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "자동 채우기"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动填写"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自動填寫"
-          }
-        }
-      }
-    },
-    "arch_import" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "استيراد"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importieren"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Import"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importa"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "インポート"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "가져오기"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "导入"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "匯入"
-          }
-        }
-      }
-    },
-    "arch_my_folder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "مجلداتي"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Meine Ordner"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "My Folders"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mis carpetas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mes dossiers"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le mie cartelle"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "マイフォルダ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "내 폴더"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "我的文件夹"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "我的文件夾"
-          }
-        }
-      }
-    },
-    "arch_new_table" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "جدول جديد"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Neue Tabelle"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New Table"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nueva tabla"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nouveau tableau"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nuova tabella"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規テーブル"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "새 표"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新建表格"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新建表格"
-          }
-        }
-      }
-    },
-    "arch_recycle_bin" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "سلة المحذوفات"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Papierkorb"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recycle Bin"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Papelera"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Corbeille"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cestino"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴミ箱"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "휴지통"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除回收"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "垃圾桶"
-          }
-        }
-      }
-    },
-    "arch_smart_view" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "العروض الذكية"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Intelligente Ansichten"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Smart Views"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vistas inteligentes"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vues intelligentes"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Viste intelligenti"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートビュー"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "스마트 뷰"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "智能聚合"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "智慧聚合"
-          }
-        }
-      }
-    },
-    "arch_template_manage" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "القوالب"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vorlagen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Templates"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Plantillas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Modèles"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Modelli"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "テンプレート"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "템플릿"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模板管理"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模板管理"
-          }
-        }
-      }
-    },
-    "arch_title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الأرشيف"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archiv"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archivos"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archivi"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アーカイブ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "보관함"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "档案库"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "檔案庫"
-          }
-        }
-      }
-    },
-    "arch_unmatched" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الملفات غير المطابقة"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nicht zugeordnete Dateien"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unmatched Files"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archivos no coincidentes"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fichiers non correspondants"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "File non corrispondenti"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不一致ファイル"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "일치하지 않는 파일"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不符合模板的文件"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不符合模板的檔案"
           }
         }
       }
@@ -3757,9 +3139,6 @@
 
     },
     "Hex" : {
-
-    },
-    "L%lld" : {
 
     },
     "L%lld (%@) 编号规则" : {
@@ -7227,71 +6606,6 @@
     "T" : {
 
     },
-    "tab_archives" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الأرشيف"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archiv"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archivos"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archivi"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アーカイブ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "보관함"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "档案"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "檔案"
-          }
-        }
-      }
-    },
     "tab_calendar" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8619,9 +7933,6 @@
     "上次更新: %@" : {
 
     },
-    "上课交互设置" : {
-
-    },
     "上课收集分发台" : {
 
     },
@@ -8629,9 +7940,6 @@
 
     },
     "下课时将自动清空并填入日期 (格式: 260101)。" : {
-
-    },
-    "下课自动写回母本" : {
 
     },
     "专注结束铃声" : {
@@ -8664,9 +7972,6 @@
     "任务清单" : {
 
     },
-    "任务清单库" : {
-
-    },
     "休息结束铃声" : {
 
     },
@@ -8694,16 +7999,7 @@
     "保留最近30次" : {
 
     },
-    "修改档案内容并保存后\n这里会出现历史存档" : {
-
-    },
-    "修改表格内容并保存后\n会自动生成历史快照" : {
-
-    },
     "修改规则" : {
-
-    },
-    "倒序" : {
 
     },
     "偏好设置" : {
@@ -8731,13 +8027,7 @@
     "全功能免费试用中，剩余 %lld 天" : {
 
     },
-    "全选" : {
-
-    },
     "全部" : {
-
-    },
-    "全部删除" : {
 
     },
     "关联行动" : {
@@ -8749,9 +8039,6 @@
     "关闭" : {
 
     },
-    "关闭教案" : {
-
-    },
     "内容与注释" : {
 
     },
@@ -8759,9 +8046,6 @@
 
     },
     "内部切分提醒" : {
-
-    },
-    "内部导入" : {
 
     },
     "内部排序" : {
@@ -8783,9 +8067,6 @@
 
     },
     "分屏预览" : {
-
-    },
-    "分支集体操作" : {
 
     },
     "分类" : {
@@ -8812,9 +8093,6 @@
     "列表展示" : {
 
     },
-    "列表展示字段 (可选多项)" : {
-
-    },
     "列表展示算法执行 Step 1 之前的初始缓存状态。" : {
 
     },
@@ -8827,9 +8105,6 @@
     "创建一个空白的 Markdown 文档" : {
 
     },
-    "创建时间" : {
-
-    },
     "创建模式" : {
 
     },
@@ -8839,34 +8114,10 @@
     "删除" : {
 
     },
-    "删除 %lld 项" : {
-
-    },
-    "删除“%@”后，对应的清单模板将更新。" : {
-
-    },
-    "删除“%@”将同步清除所有相关内容，且不可撤销。" : {
-
-    },
     "删除于 %@" : {
 
     },
-    "删除分类" : {
-
-    },
     "删除文件" : {
-
-    },
-    "删除文件夹将同步删除其内部的所有表格文件，此操作不可撤销。" : {
-
-    },
-    "删除模板" : {
-
-    },
-    "删除模板？" : {
-
-    },
-    "删除模板将同步删除所有关联文件。此操作不可恢复。" : {
 
     },
     "删除此规则" : {
@@ -8887,25 +8138,6 @@
     "加粗" : {
 
     },
-    "加粗显示" : {
-
-    },
-    "包含" : {
-
-    },
-    "包含Keys: %@" : {
-
-    },
-    "匹配项 %lld / %lld" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "匹配项 %1$lld / %2$lld"
-          }
-        }
-      }
-    },
     "升级 Pro 解锁" : {
 
     },
@@ -8913,9 +8145,6 @@
 
     },
     "即时渲染" : {
-
-    },
-    "历史快照" : {
 
     },
     "历史版本" : {
@@ -8933,40 +8162,13 @@
     "取消" : {
 
     },
-    "取消全选" : {
-
-    },
     "取消新建" : {
-
-    },
-    "合并后将丢失: %@" : {
-
-    },
-    "合并后将新增: %@" : {
-
-    },
-    "合并并删除当前模板" : {
-
-    },
-    "合并建议" : {
 
     },
     "同步更新中心" : {
 
     },
     "同步规则设置" : {
-
-    },
-    "同步规则说明" : {
-
-    },
-    "名称" : {
-
-    },
-    "名称“%@”已存在。" : {
-
-    },
-    "名称已存在" : {
 
     },
     "名称重复" : {
@@ -8984,12 +8186,6 @@
     "图片未找到" : {
 
     },
-    "在教案编辑器中修改内容并退出后\n系统会自动生成历史快照" : {
-
-    },
-    "在末尾添加新根节点..." : {
-
-    },
     "在桌面一键切换时间分类。" : {
 
     },
@@ -9003,9 +8199,6 @@
 
     },
     "基本信息" : {
-
-    },
-    "基础设置" : {
 
     },
     "处理结果" : {
@@ -9062,9 +8255,6 @@
     "完成并插入内容" : {
 
     },
-    "定义规则，自动跨表格提取关键信息" : {
-
-    },
     "实时光标监控" : {
 
     },
@@ -9077,10 +8267,10 @@
     "导出为..." : {
 
     },
-    "导出全量数据" : {
+    "导出图片" : {
 
     },
-    "导出图片" : {
+    "导出计时与效率数据" : {
 
     },
     "导航栏设置" : {
@@ -9098,9 +8288,6 @@
     "层级" : {
 
     },
-    "层级视图" : {
-
-    },
     "工作" : {
 
     },
@@ -9113,9 +8300,6 @@
     "已安装的中文字体" : {
 
     },
-    "已改动母本章节 (蓝色标记)" : {
-
-    },
     "已更换照片" : {
 
     },
@@ -9125,25 +8309,10 @@
     "已选 %lld" : {
 
     },
-    "已选 %lld 个目录" : {
-
-    },
-    "已选 %lld 项" : {
-
-    },
-    "已选择所有字段" : {
-
-    },
     "布局方式" : {
 
     },
     "开启分类显示后，任务将按所属提醒列表分层，组内按所选维度排序。" : {
-
-    },
-    "开启后，带有蓝色标记的修改项将在下课时自动同步到教案源文件。" : {
-
-    },
-    "开启后，随堂笔记将与母本、进度清单实时联动。" : {
 
     },
     "开始" : {
@@ -9155,25 +8324,16 @@
     "开始分发更新" : {
 
     },
-    "开始创建" : {
-
-    },
     "开始时间不能晚于结束时间" : {
 
     },
     "开始符" : {
 
     },
-    "引用清单" : {
-
-    },
     "归并逻辑：系统将根据【词条名字】自动迁移内容，不匹配的项将留空。原表将备份至回收站。" : {
 
     },
     "当前使用" : {
-
-    },
-    "当前可用教辅模板" : {
 
     },
     "当前图标" : {
@@ -9188,22 +8348,13 @@
     "当前文件夹下已存在同名文件。" : {
 
     },
-    "当前模板结构独特，无合并建议。" : {
-
-    },
     "当前目标: %@" : {
 
     },
     "彻底删除" : {
 
     },
-    "待处理导入文件" : {
-
-    },
     "待提高" : {
-
-    },
-    "待晋升章节 (存入母本库)" : {
 
     },
     "循环" : {
@@ -9245,22 +8396,7 @@
     "执行图片垃圾回收 (GC)" : {
 
     },
-    "执行教案全量清洗 & 层级规范化" : {
-
-    },
-    "批量删除" : {
-
-    },
-    "批量编辑模式" : {
-
-    },
-    "按回车快速新建下一行" : {
-
-    },
     "按照列表分类显示" : {
-
-    },
-    "排序" : {
 
     },
     "排序方式" : {
@@ -9269,13 +8405,7 @@
     "排序维度" : {
 
     },
-    "排序规则" : {
-
-    },
     "提示" : {
-
-    },
-    "提示：该学生未关联反馈模板" : {
 
     },
     "提醒" : {
@@ -9290,49 +8420,10 @@
     "搜索字体名称..." : {
 
     },
-    "搜索教案项..." : {
-
-    },
     "搜索文件名..." : {
 
     },
-    "搜索模板名..." : {
-
-    },
-    "操作将从模板中移除选中的 %lld 个词条，并清理相关数据。" : {
-
-    },
     "效率" : {
-
-    },
-    "教学同步模式" : {
-
-    },
-    "教学设置" : {
-
-    },
-    "教案历史版本" : {
-
-    },
-    "教案名称 (如: 初中数学精讲)" : {
-
-    },
-    "教案母本" : {
-
-    },
-    "教案母本目录" : {
-
-    },
-    "教案管理" : {
-
-    },
-    "教辅关联在“学生初始化”中配置，这里用于课中查看。" : {
-
-    },
-    "教辅关联已移至“学生初始化”流程中进行配置。此处仅展示现有模板库。" : {
-
-    },
-    "教辅模板库" : {
 
     },
     "数据清理工具" : {
@@ -9374,24 +8465,6 @@
     "新建" : {
 
     },
-    "新建教案母本" : {
-
-    },
-    "新建教案章节" : {
-
-    },
-    "新建文件夹" : {
-
-    },
-    "新建清单" : {
-
-    },
-    "新建清单模板" : {
-
-    },
-    "新建表格模板" : {
-
-    },
     "新建规则" : {
 
     },
@@ -9401,9 +8474,6 @@
     "新日程" : {
 
     },
-    "新预设..." : {
-
-    },
     "旗标" : {
 
     },
@@ -9411,12 +8481,6 @@
 
     },
     "无内容" : {
-
-    },
-    "无数据" : {
-
-    },
-    "无显示列" : {
 
     },
     "无有效记录" : {
@@ -9458,58 +8522,22 @@
     "智能列表" : {
 
     },
-    "智能视图" : {
-
-    },
-    "智能聚合" : {
-
-    },
     "暂停 / 长按重置" : {
 
     },
     "暂无历史存档" : {
 
     },
-    "暂无历史记录" : {
-
-    },
-    "暂无可用教辅模板" : {
-
-    },
-    "暂无可用模板。请在档案页创建清单模板。" : {
-
-    },
-    "暂无可用的清单模板。" : {
-
-    },
     "暂无备份记录" : {
 
     },
-    "暂无教案文件，点击右上角添加或导入" : {
-
-    },
-    "暂无未匹配文件" : {
-
-    },
-    "暂无模板" : {
-
-    },
     "暂无物理备份 (App进入后台时自动生成)" : {
-
-    },
-    "暂无自动填写表格，请先在档案中创建。" : {
 
     },
     "暂无规则" : {
 
     },
     "暂无需要同步的改动" : {
-
-    },
-    "更换教案" : {
-
-    },
-    "更换模板" : {
 
     },
     "更改文件夹" : {
@@ -9539,25 +8567,10 @@
     "有效总计" : {
 
     },
-    "未发现具体表格模板" : {
-
-    },
-    "未发现相似模板" : {
-
-    },
-    "未在选定教案中找到 CSV 章文件" : {
-
-    },
     "未找到 (nil)" : {
 
     },
     "未找到今日反馈表\n请检查学生初始化配置" : {
-
-    },
-    "未找到匹配项" : {
-
-    },
-    "未找到教案母本，请在教案页创建。" : {
 
     },
     "李知本时间管理" : {
@@ -9572,43 +8585,16 @@
     "查找..." : {
 
     },
-    "查找清单项..." : {
-
-    },
     "查看历史版本" : {
 
     },
     "标题" : {
 
     },
-    "样式配置" : {
-
-    },
     "格式" : {
 
     },
-    "档案中的可用清单模板" : {
-
-    },
-    "检测到相似模板" : {
-
-    },
-    "检测到符合条件的文件" : {
-
-    },
     "模式" : {
-
-    },
-    "模板名称" : {
-
-    },
-    "模板名称“%@”已存在，请换一个名称。" : {
-
-    },
-    "模板名称“%@”已存在。" : {
-
-    },
-    "模板管理" : {
 
     },
     "欢迎使用 李知本时间管理" : {
@@ -9623,13 +8609,7 @@
     "正在生成..." : {
 
     },
-    "正在聚合..." : {
-
-    },
     "正在获取价格..." : {
-
-    },
-    "正序" : {
 
     },
     "正文与引用" : {
@@ -9648,12 +8628,6 @@
 
     },
     "没有其他分类可移动" : {
-
-    },
-    "没有可导入的文件" : {
-
-    },
-    "没有文件使用此模板" : {
 
     },
     "活跃节点: %lld | 缓存公式: %lld" : {
@@ -9675,9 +8649,6 @@
     "添加新规则" : {
 
     },
-    "添加条件" : {
-
-    },
     "清单不存在" : {
 
     },
@@ -9685,9 +8656,6 @@
 
     },
     "清单样式" : {
-
-    },
-    "清单项 (%lld)" : {
 
     },
     "清空" : {
@@ -9708,9 +8676,6 @@
     "点击上方“学生”按钮，激活学生目录" : {
 
     },
-    "点击右上角图标，新建教案文件夹" : {
-
-    },
     "点击开始课程" : {
 
     },
@@ -9721,12 +8686,6 @@
 
     },
     "点击继续" : {
-
-    },
-    "点击输入..." : {
-
-    },
-    "点击选择字段..." : {
 
     },
     "点击选择照片" : {
@@ -9768,31 +8727,10 @@
     "确认删除" : {
 
     },
-    "确认删除 %lld 项" : {
-
-    },
-    "确认删除？" : {
-
-    },
-    "确认删除词条？" : {
-
-    },
-    "确认删除选中的分支？" : {
-
-    },
-    "确认删除选中的文件夹？" : {
-
-    },
     "确认删除章节？" : {
 
     },
-    "确认合并？" : {
-
-    },
     "确认回滚？" : {
-
-    },
-    "确认批量删除？" : {
 
     },
     "确认清空" : {
@@ -9810,9 +8748,6 @@
     "空文件夹" : {
 
     },
-    "空白模板" : {
-
-    },
     "立即创建" : {
 
     },
@@ -9828,13 +8763,7 @@
     "等待开始..." : {
 
     },
-    "筛选过滤 (符合以下条件才显示)" : {
-
-    },
     "算法物理对账" : {
-
-    },
-    "系统将自动物理删除所选节点及其下属的所有子孙项。" : {
 
     },
     "系统默认" : {
@@ -9844,9 +8773,6 @@
 
     },
     "结束符" : {
-
-    },
-    "结构完全一致，安全合并。" : {
 
     },
     "继续" : {
@@ -9867,19 +8793,10 @@
     "编辑列表" : {
 
     },
-    "编辑预设 Tag" : {
-
-    },
     "联系邮箱 (点击复制)" : {
 
     },
-    "聚合名称 (例如: 待办汇总)" : {
-
-    },
     "脏包对账弹窗" : {
-
-    },
-    "自动化查询与聚合" : {
 
     },
     "自动化调试" : {
@@ -9898,9 +8815,6 @@
 
     },
     "行动类型" : {
-
-    },
-    "表格结构 (%lld)" : {
 
     },
     "规则定义" : {
@@ -9924,43 +8838,22 @@
     "试用已结束" : {
 
     },
-    "该名称已被使用。" : {
-
-    },
     "详细使用手册" : {
 
     },
     "详细信息" : {
 
     },
-    "请先在左侧选择教案母本" : {
-
-    },
-    "请先在档案页创建清单模板。" : {
-
-    },
     "请在设置中添加%@项目" : {
-
-    },
-    "请将符合格式的 CSV 文件放入\niCloud Drive/李知本时间管理/导入" : {
 
     },
     "请选择参考源..." : {
 
     },
-    "请选择新目标模板" : {
-
-    },
     "请选择样式..." : {
 
     },
-    "请选择模板..." : {
-
-    },
     "请选择要存入的章文件" : {
-
-    },
-    "请选择要开启的教案:" : {
 
     },
     "课堂反馈表" : {
@@ -9972,25 +8865,13 @@
     "课程表排课模式" : {
 
     },
-    "警告：删除“%@”将同步删除所有使用该模板的表格文件。\n\n此操作不可撤销，确定要继续吗？" : {
-
-    },
     "路径: %@" : {
 
     },
     "软件简介与帮助" : {
 
     },
-    "辅助输入" : {
-
-    },
-    "输入内容关键词" : {
-
-    },
     "输入开头触发符后输入内容，再输入结束触发符，系统将自动包裹。" : {
-
-    },
-    "输入新词条..." : {
 
     },
     "输入标题" : {
@@ -9999,7 +8880,7 @@
     "输入触发符后空格或继续输入会自动替换。" : {
 
     },
-    "还原表格" : {
+    "还原将替换当前数据。操作不可撤销。" : {
 
     },
     "这是第 %lld 层样式示例" : {
@@ -10014,9 +8895,6 @@
     "选择具体章节" : {
 
     },
-    "选择匹配的模板..." : {
-
-    },
     "选择字体" : {
 
     },
@@ -10026,52 +8904,22 @@
     "选择数值" : {
 
     },
-    "选择数据源模板" : {
-
-    },
     "选择文件夹" : {
 
     },
     "选择样式" : {
 
     },
-    "选择模板" : {
-
-    },
-    "选择目标母本" : {
-
-    },
     "选择编辑层级" : {
 
     },
-    "选择词条" : {
-
-    },
     "选择铃声" : {
-
-    },
-    "逻辑树结构设计" : {
 
     },
     "邮箱地址已复制到剪贴板。" : {
 
     },
     "重命名" : {
-
-    },
-    "重命名分类" : {
-
-    },
-    "重命名教案" : {
-
-    },
-    "重命名模板" : {
-
-    },
-    "重命名清单" : {
-
-    },
-    "重命名表格" : {
 
     },
     "重新梳理" : {
@@ -10087,9 +8935,6 @@
 
     },
     "长图 (.png)" : {
-
-    },
-    "集体删除" : {
 
     },
     "预览效果" : {
