@@ -7,15 +7,8 @@ import ActivityKit
 
 private let liveActivityIntentAppGroupIdentifier = "group.Han.TimeTracker"
 private let liveActivityIntentSharedStateKey = "sharedCurrentState"
-private let liveActivityIntentPendingTimerActionKey = "pendingTimerAction_v1"
 
 private struct LiveActivityIntentSharedState: Codable {
-    let category: String
-    let startTime: Date
-}
-
-private struct LiveActivityIntentPendingTimerAction: Codable {
-    let id: UUID
     let category: String
     let startTime: Date
 }
@@ -124,8 +117,12 @@ public struct TimeTrackerShortcutsProvider: AppShortcutsProvider {
 
 private enum TimerActionIntentEngine {
     static func switchTo(category: ActivityCategory, at startTime: Date = Date()) async {
-        let startTime = minuteAligned(startTime)
         let catString = category.rawValue
+        // Shared display state can be stale during cold launch. Let the authoritative
+        // store decide whether a same-category command is a no-op.
+        do { try TimerActionMailbox.enqueue(category: catString, at: startTime) }
+        catch { print("[TimerSync] Cannot queue action: \(error)"); return }
+        if await TimerActionMailbox.processInApp() { return }
         let sharedDefaults = writeSharedTransition(category: catString, startTime: startTime)
         let score = sharedDefaults?.double(forKey: "sharedYesterdayScore") ?? 0
         let state = TimeTrackerAttributes.ContentState(category: catString, startTime: startTime, yesterdayScore: score)
@@ -142,18 +139,9 @@ private enum TimerActionIntentEngine {
         if let data = try? JSONEncoder().encode(newState) {
             sharedDefaults.set(data, forKey: liveActivityIntentSharedStateKey)
         }
-        let action = LiveActivityIntentPendingTimerAction(id: UUID(), category: category, startTime: startTime)
-        if let data = try? JSONEncoder().encode(action) {
-            sharedDefaults.set(data, forKey: liveActivityIntentPendingTimerActionKey)
-        }
         sharedDefaults.synchronize()
         return sharedDefaults
     }
 
-    private static func minuteAligned(_ date: Date) -> Date {
-        let cal = Calendar.current
-        let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-        return cal.date(from: comps) ?? date
-    }
 }
 #endif

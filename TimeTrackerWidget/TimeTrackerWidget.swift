@@ -23,6 +23,7 @@ struct SharedState: Codable {
     let startTime: Date
 }
 
+#if !os(iOS) || targetEnvironment(macCatalyst)
 public enum ActivityCategory: String, AppEnum {
     case work = "工作", necessity = "刚需", life = "生活", monitor = "监控", gap = "空"
     
@@ -31,6 +32,14 @@ public enum ActivityCategory: String, AppEnum {
         .work: "工作", .necessity: "刚需", .life: "生活", .monitor: "监控", .gap: "空"
     ]
 }
+
+#endif
+
+#if os(iOS) && !targetEnvironment(macCatalyst)
+typealias InteractiveTimerIntent = LiveActivityStartTimerIntent
+#else
+typealias InteractiveTimerIntent = StartTimerIntent
+#endif
 
 // MARK: - 2. Live Activity 属性定义
 #if os(iOS) && canImport(ActivityKit) && !targetEnvironment(macCatalyst)
@@ -49,6 +58,7 @@ public struct TimeTrackerAttributes: ActivityAttributes {
 
 // MARK: - 3. 交互 Intent
 public struct StartTimerIntent: WidgetConfigurationIntent {
+    public static var openAppWhenRun: Bool = false
     public static var title: LocalizedStringResource = "切换计时状态"
     public static var description = IntentDescription("点击立即开始新的时间记录")
 
@@ -64,6 +74,7 @@ public struct StartTimerIntent: WidgetConfigurationIntent {
         let targetCat = category ?? .work
         let catString = targetCat.rawValue
         
+        try TimerActionMailbox.enqueue(category: catString, at: now)
         // B. 写入共享存储 (App Group)
         if let sharedDefaults = UserDefaults(suiteName: widgetAppGroupIdentifier) {
             let newState = SharedState(category: catString, startTime: now)
@@ -78,10 +89,8 @@ public struct StartTimerIntent: WidgetConfigurationIntent {
             let state = TimeTrackerAttributes.ContentState(category: catString, startTime: now, yesterdayScore: score)
             
             // 并行更新，不阻塞 Widget 刷新
-            Task {
-                for activity in Activity<TimeTrackerAttributes>.activities {
-                    await activity.update(ActivityContent(state: state, staleDate: nil))
-                }
+            for activity in Activity<TimeTrackerAttributes>.activities {
+                await activity.update(ActivityContent(state: state, staleDate: nil))
             }
             #endif
         }
@@ -106,7 +115,7 @@ struct Provider: AppIntentTimelineProvider {
     func timeline(for configuration: StartTimerIntent, in context: Context) async -> Timeline<SimpleEntry> {
         let entry = SimpleEntry(date: Date(), currentCategory: fetchCurrent())
         // 由于是交互式组件，policy 设为 never，完全由 Intent 驱动刷新
-        return Timeline(entries: [entry], policy: .never)
+        return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(60)))
     }
     
     private func fetchCurrent() -> String? {
@@ -127,7 +136,7 @@ struct MacProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> Void) {
         let entry = SimpleEntry(date: Date(), currentCategory: fetchCurrent())
-        completion(Timeline(entries: [entry], policy: .never))
+        completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(60))))
     }
 
     private func fetchCurrent() -> String? {
@@ -212,7 +221,7 @@ struct SmallGridView: View {
         let color = getCatColor(cat.rawValue)
         #if os(macOS)
         if #available(macOS 14.0, *) {
-            Button(intent: StartTimerIntent(category: cat)) {
+            Button(intent: InteractiveTimerIntent(category: cat)) {
                 ZStack {
                     if isAct { color.opacity(0.2) }
                     Image(systemName: getCatIcon(cat.rawValue))
@@ -232,7 +241,7 @@ struct SmallGridView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         #else
-        Button(intent: StartTimerIntent(category: cat)) {
+        Button(intent: InteractiveTimerIntent(category: cat)) {
             ZStack {
                 if isAct { color.opacity(0.2) }
                 Image(systemName: getCatIcon(cat.rawValue))
@@ -258,7 +267,7 @@ struct MediumBarView: View {
                 let color = getCatColor(item.rawValue)
                 #if os(macOS)
                 if #available(macOS 14.0, *) {
-                    Button(intent: StartTimerIntent(category: item)) {
+                    Button(intent: InteractiveTimerIntent(category: item)) {
                         mediumButtonContent(item: item, isAct: isAct, color: color)
                     }
                     .buttonStyle(.plain)
@@ -266,7 +275,7 @@ struct MediumBarView: View {
                     mediumButtonContent(item: item, isAct: isAct, color: color)
                 }
                 #else
-                Button(intent: StartTimerIntent(category: item)) {
+                Button(intent: InteractiveTimerIntent(category: item)) {
                     mediumButtonContent(item: item, isAct: isAct, color: color)
                 }
                 .buttonStyle(.plain)
@@ -332,7 +341,7 @@ struct RectLockView: View {
         HStack {
             ForEach([ActivityCategory.work, .necessity, .life, .monitor], id: \.self) { cat in
                 let isAct = (current == cat.rawValue)
-                Button(intent: StartTimerIntent(category: cat)) {
+                Button(intent: InteractiveTimerIntent(category: cat)) {
                     ZStack {
                         if isAct { RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.3)) }
                         Image(systemName: getCatIcon(cat.rawValue))

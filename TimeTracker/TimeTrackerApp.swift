@@ -1118,9 +1118,9 @@ class EfficiencyStore: ObservableObject {
     @AppStorage("cache_yesterday_score_v1") var yesterdayScoreCache: Double = 0.0
     @AppStorage("cache_last_refresh_day_v1") private var lastRefreshDay: String = ""
     
-    private let dataFileName = "efficiency_data_final_v20.json"
-    private let weeklyFileName = "weekly_targets_v20.json"
-    private let settingsFileName = "efficiency_settings_v20.json"
+    private let dataFileName = "efficiency_data.json"
+    private let weeklyFileName = "weekly_targets"
+    private let settingsFileName = "efficiency_settings.json"
     
     init() {
         load()
@@ -1137,7 +1137,7 @@ class EfficiencyStore: ObservableObject {
             "记录/\(settingsFileName)"
         ]
         
-        if validPaths.contains(path) {
+        if validPaths.contains(path) || path.hasPrefix("记录/weekly_targets/") || ["记录/weekly_targets_v20.json", "记录/efficiency_data_final_v20.json", "记录/efficiency_settings_v20.json"].contains(path) {
             print("[EfficiencyStore] 检测到数据更新: \(path)")
             load()
         }
@@ -1225,10 +1225,9 @@ class EfficiencyStore: ObservableObject {
             CloudFileManager.shared.saveDual(data: d, folder: .records, fileName: dataFileName)
         }
         if let wd = try? JSONEncoder().encode(weeklyTargets) {
-            CloudSyncManager.shared.ignoreNextUpdate(relativePath: "记录/\(weeklyFileName)")
-            CloudFileManager.shared.saveDual(data: wd, folder: .records, fileName: weeklyFileName)
+            CloudFileManager.shared.saveWeeklyTargets(wd)
         }
-        
+
         let sd = SettingsData(targetHours: targetHours, targetEfficiency: targetEfficiency)
         if let sdd = try? JSONEncoder().encode(sd) {
             CloudSyncManager.shared.ignoreNextUpdate(relativePath: "记录/\(settingsFileName)")
@@ -1253,7 +1252,7 @@ class EfficiencyStore: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let d1 = CloudFileManager.shared.smartLoad(folder: .records, fileName: dataName)
-            let d2 = CloudFileManager.shared.smartLoad(folder: .records, fileName: weeklyName)
+            let d2 = try? CloudFileManager.shared.loadWeeklyTargets()
             let d3 = CloudFileManager.shared.smartLoad(folder: .records, fileName: settingsName)
 
             let decodedDaily = d1.flatMap { try? JSONDecoder().decode([String: DailyEfficiency].self, from: $0) }
@@ -1515,30 +1514,6 @@ class CalendarStore: ObservableObject {
 //
 // TimeRecord
 // (修改：新增 subCategory 字段，用于支持“详细统计”功能，记录具体的项目名称。)
-
-struct TimeRecord: Identifiable, Codable, Equatable {
-    let id: UUID
-    var category: String
-    var subCategory: String? // 【核心新增】记录具体项，如“数学”
-    var startTime: Date
-    var endTime: Date
-    
-    var isGap: Bool { category == "空" }
-    var isOngoing: Bool { endTime.is25Hour }
-    
-    var duration: TimeInterval {
-        let realEnd = isOngoing ? Date() : endTime
-        return realEnd.timeIntervalSince(startTime)
-    }
-    
-    init(id: UUID = UUID(), category: String, subCategory: String? = nil, startTime: Date, endTime: Date) {
-        self.id = id
-        self.category = category
-        self.subCategory = subCategory // 初始化赋值
-        self.startTime = startTime
-        self.endTime = endTime
-    }
-}
 
 // MARK: - 详细统计子项模型 - v1 - 定义具体行动项
 //
@@ -1823,6 +1798,7 @@ struct TimerBackupData: Codable {
     let targetEfficiency: Int
     let appSettings: AppSettings
     let backupDate: Date
+    var weeklyTargets: [String: WeeklyTarget]? = nil
 }
 
 
@@ -1864,6 +1840,7 @@ struct TTModalSheetContainer<Content: View>: View {
                 }
         }
         #if os(macOS)
+        .focusEffectDisabled()
         .frame(width: minWidth, height: minHeight)
         #endif
     }
@@ -2011,13 +1988,16 @@ struct SettingsView: View {
 struct DebugSettingsView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var store: GlobalSettingsStore
+    @AppStorage("record_transition_trace_enabled") private var traceTransitions = false
     
     var body: some View {
         NavigationStack {
             Form {
                 Section(header: Text("自动化调试")) {
-                    // 【324号新增】
-                    Toggle("时间轴算法物理对账", isOn: $store.config.isTimeAlgorithmDebugEnabled).tint(.blue)
+                    Toggle("记录正常行动切换", isOn: $traceTransitions).tint(.blue)
+                    Text("异常时间始终自动记录并拦截，不受此开关影响。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    NavigationLink("记录时间诊断") { RecordTimeDiagnosticsView() }
                 }
                 
                 Section(header: Text("文件系统")) {
@@ -2585,8 +2565,14 @@ struct TimeTrackerApp: App {
             .environmentObject(detailedCategoryStore)
             
             .preferredColorScheme(.dark)
+            #if os(macOS)
+            .focusEffectDisabled()
+            #endif
             .onAppear {
                 StartupDiagnostics.shared.mark("WindowGroup.onAppear")
+                #if os(macOS)
+                MacAutomaticIcon.shared.start()
+                #endif
                 #if os(macOS) && !targetEnvironment(macCatalyst)
                 if let appMenu = NSApp.mainMenu?.items.first?.submenu {
                     let servicesMenu = NSApp.servicesMenu
@@ -2626,18 +2612,18 @@ struct TimeTrackerApp: App {
     }
     
     private func performAutoBackup() {
-        let backup = TimerBackupData(
-            records: timeStore.records,
-            efficiencyData: efficiencyStore.dailyData,
-            targetHours: efficiencyStore.targetHours,
-            targetEfficiency: efficiencyStore.targetEfficiency,
-            appSettings: settingsStore.config,
-            backupDate: Date()
-        )
-        if let data = try? JSONEncoder().encode(backup) {
-            BackupManager.shared.saveSystemSnapshot(data)
+        let daily = efficiencyStore.dailyData, hours = efficiencyStore.targetHours, efficiency = efficiencyStore.targetEfficiency
+        let config = settingsStore.config, weekly = efficiencyStore.weeklyTargets
+        Task {
+            do {
+                let allRecords = try await timeStore.completeRecordsForExportAsync()
+                let backup = TimerBackupData(records: allRecords, efficiencyData: daily, targetHours: hours,
+                    targetEfficiency: efficiency, appSettings: config, backupDate: Date(), weeklyTargets: weekly)
+                if let data = try? JSONEncoder().encode(backup) { BackupManager.shared.saveSystemSnapshot(data) }
+            } catch { DebugLogCenter.appendCloud("完整备份暂缓：部分历史月份尚未下载") }
         }
     }
+
 }
 
 // MARK: - 全局辅助与模型
@@ -3289,6 +3275,10 @@ class TimeStore: ObservableObject {
     var isFreshLaunch = false
     weak var efficiencyStore: EfficiencyStore?
     var scoreTimer: Timer?
+    private var pendingCommandAcknowledgements: Set<URL> = []
+    private var externalActionTimer: Timer?
+    private var externalActionObserver: NSObjectProtocol?
+    private var liveActivityUpdateTask: Task<Void, Never>?
     
     // 【325号扩展】：增加 listL 用于存储缓存表快照
     struct AlgorithmDebugData: Identifiable, Equatable {
@@ -3311,33 +3301,67 @@ class TimeStore: ObservableObject {
     var undoStack: [UndoSnapshot] = []
     var redoStack: [UndoSnapshot] = []
     var isUndoGrouping = false
+    private var recordMutationFailure: String?
     
     var isSyncingFromCloud = false
     var isInitialLoading = true
     private var hasSuccessfullyLoaded = false
     
     var lastSuccessfulCloudLoadDate = Date.distantPast
-    let recordsFileName = "timeRecords_v20.json"
+    let recordsFileName = "current.json"
+    @Published var recordEditErrorMessage = ""
+    private var requestedMonths = MonthlyRecordArchive.homeMonths()
+    private var loadedMonths: Set<String> = []
+    fileprivate var replaceAllOnNextSave = false
     let sharedKey = "sharedCurrentState"
     
     var reloadWorkItem: DispatchWorkItem?
     var pendingReload = false
     private var isLoadInProgress = false
     private var recordsRevision = 0
+    private var latestRecordEditAt = Date.distantPast
+    private var externalCommandEditAt: Date?
+    private var pendingRetryInProgress = false
+    private var lastPendingRetry = Date.distantPast
+    private var lastCloudPulse = Date.distantPast
+    private var cloudPulseInProgress = false
     private var loadedCloudHash: String?
     @Published private(set) var hasUnsyncedRecords = false
     var loadRetryCount = 0
     let maxLoadRetries = 3
     
-    var currentRecord: TimeRecord? { records.last(where: { $0.isOngoing }) }
+    var currentRecord: TimeRecord? { records.last(where: { $0.isOngoing && $0.startTime <= Date() }) }
     
     init() {
         StartupDiagnostics.shared.mark("TimeStore.init")
         load()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { self.isInitialLoading = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { self.isInitialLoading = false; self.checkForExternalUpdates() }
         scoreTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.efficiencyStore?.refreshCache(with: self.records, forceYesterday: false)
+        }
+        Task { @MainActor [weak self] in
+            TimerActionMailbox.consumer = { [weak self] in
+                guard let self else { return false }
+                for _ in 0..<80 {
+                    if !self.isInitialLoading && !self.isSyncingFromCloud && self.hasSuccessfullyLoaded {
+                        self.checkForExternalUpdates()
+                        await self.liveActivityUpdateTask?.value
+                        return true
+                    }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                return false
+            }
+        }
+        externalActionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.checkForExternalUpdates()
+            self?.retryLatestRecordsIfNeeded()
+            self?.pollLatestCloudRecords()
+            CloudFileManager.shared.retryPendingTargets()
+        }
+        externalActionObserver = NotificationCenter.default.addObserver(forName: TimerActionMailbox.changed, object: nil, queue: .main) { [weak self] _ in
+            DispatchQueue.main.async { self?.checkForExternalUpdates() }
         }
         NotificationCenter.default.addObserver(self, selector: #selector(handleCloudFileChange), name: .CloudFileDidChange, object: nil)
         #if os(iOS)
@@ -3353,7 +3377,7 @@ extension TimeStore {
     @objc func handleCloudFileChange(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let path = userInfo["path"] as? String,
-              path == "记录/\(recordsFileName)" else { return }
+              (path == "记录/\(recordsFileName)" || path.hasPrefix("记录/records/") || path == "记录/timeRecords_v20.json" || path == "记录/timeRecords.json") else { return }
 
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in self?.handleCloudFileChange(notification) }
@@ -3385,10 +3409,6 @@ extension TimeStore {
             pendingReload = true
             return
         }
-        if hasUnsyncedRecords {
-            CloudSyncManager.shared.noteRecordsWriteResult("本机记录尚未写入 iCloud；请从数据管理恢复历史记录后再检查")
-            return
-        }
         isLoadInProgress = true
         let diagnosticStart = StartupDiagnostics.shared.begin("TimeStore.load")
         pendingReload = false
@@ -3398,12 +3418,27 @@ extension TimeStore {
         self.lock.unlock()
         
         let fileName = recordsFileName
+        let monthsToLoad = requestedMonths
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            let pendingSnapshot = CloudFileManager.shared.pendingRecordsSnapshot
+            var pendingSnapshot = CloudFileManager.shared.pendingRecordsSnapshot
+            let monthly = try? CloudFileManager.shared.loadMonthlyRecords(months: monthsToLoad)
+            let cloudSnapshot = monthly.flatMap { loaded -> LatestCloudFile.Snapshot? in
+                guard let data = try? JSONEncoder().encode(loaded.records) else { return nil }
+                return .init(data: data, modifiedAt: loaded.editedAt)
+            }
+            if let pending = pendingSnapshot, let cloud = cloudSnapshot,
+               !LatestCloudFile.prefers(.init(data: pending.data, modifiedAt: pending.editedAt ?? .distantPast), over: cloud) {
+                CloudFileManager.shared.discardPendingRecords(ifMatching: pending.data)
+                pendingSnapshot = nil
+            }
             let pendingData = pendingSnapshot?.data
             let pendingUnreadable = CloudFileManager.shared.hasPendingRecordsFile && pendingSnapshot == nil
-            let loadedData = pendingUnreadable ? nil : (pendingData ?? CloudFileManager.shared.smartLoad(folder: .records, fileName: fileName))
+            let loadedData = pendingUnreadable ? nil : (pendingData ?? cloudSnapshot?.data)
+            let selectedMonths = pendingSnapshot?.loadedMonths.map(Set.init) ?? monthly?.months ?? monthsToLoad
+            let replaceAll = pendingSnapshot?.replaceAll ?? (pendingData != nil && pendingSnapshot?.loadedMonths == nil)
+            let headDigest = monthly.map { CloudFileManager.hash($0.headData) }
+            let selectedEditAt = pendingSnapshot?.editedAt ?? cloudSnapshot?.modifiedAt ?? Date.distantPast
             let loadedRecords = loadedData.flatMap { try? JSONDecoder().decode([TimeRecord].self, from: $0) }
             let cloudURL = CloudFileManager.shared.getCloudDir(.records).appendingPathComponent(fileName)
             let cloudModDate = (try? cloudURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
@@ -3418,14 +3453,18 @@ extension TimeStore {
             }
             if let loadedRecords {
                 self.lock.lock()
-                self.records = loadedRecords
+                self.records = MonthlyRecordArchive.normalize(loadedRecords, now: Date()).valid
+                self.loadedMonths = selectedMonths
+                self.replaceAllOnNextSave = replaceAll
+                self.latestRecordEditAt = selectedEditAt
                 self.isFreshLaunch = false
                 self.hasSuccessfullyLoaded = true
                 self.hasUnsyncedRecords = pendingData != nil
                 self.loadedCloudHash = pendingData != nil ? pendingSnapshot?.expectedCloudHash :
-                    (cloudIsReadable ? loadedData.map(CloudFileManager.hash) : nil)
+                    (cloudIsReadable ? headDigest : nil)
                 if pendingData != nil {
-                    CloudSyncManager.shared.noteRecordsWriteResult("发现上次未同步的本机记录；已保护，等待手动重试或导出")
+                    CloudSyncManager.shared.noteRecordsWriteResult("本机版本较新，正在自动重试同步")
+                    DispatchQueue.main.async { self.retryLatestRecordsIfNeeded() }
                 } else if let cloudModDate {
                     self.lastSuccessfulCloudLoadDate = cloudModDate
                 }
@@ -3454,8 +3493,12 @@ extension TimeStore {
         }
     }
 
-    func save() {
-        if isSyncingFromCloud || isInitialLoading { return }
+    func save(isRetry: Bool = false) {
+        if isSyncingFromCloud || isInitialLoading || isUndoGrouping { return }
+        let issues = RecordIntegrity.issues(records, now: Date())
+        guard issues.isEmpty else { rejectRecordMutation("检测到异常记录，未写入文件。", phase: "save.rejected", context: records, issues: issues); return }
+        if !isRetry { latestRecordEditAt = externalCommandEditAt ?? Date() }
+        let editedAt = latestRecordEditAt
         recordsRevision += 1
         let saveRevision = recordsRevision
         
@@ -3466,30 +3509,41 @@ extension TimeStore {
         
         // 【266号核心修改】：将保存快照和磁盘 I/O 移出主线程
         let recordsToSave = self.records
+        let monthsToSave = self.loadedMonths
+        let replacingAll = self.replaceAllOnNextSave
         let lastLoadDateSnapshot = self.lastSuccessfulCloudLoadDate
         let expectedHash = loadedCloudHash
         
         Task {
-            if recordsToSave.isEmpty && lastLoadDateSnapshot != Date.distantPast {
+            if recordsToSave.isEmpty && lastLoadDateSnapshot != Date.distantPast && !replacingAll {
                 print("[Critical] 拦截异常空数据保存请求。")
                 return
             }
 
             if let d = try? JSONEncoder().encode(recordsToSave) {
-                BackupManager.shared.saveBackup(data: d, module: "TimeRecords")
                 let result = await Task.detached(priority: .utility) {
-                    CloudFileManager.shared.saveRecordsSafely(data: d, expectedHash: expectedHash, revision: saveRevision)
+                    CloudFileManager.shared.saveRecordsSafely(data: d, expectedHash: expectedHash, revision: saveRevision, editedAt: editedAt, loadedMonths: monthsToSave, replaceAll: replacingAll)
                 }.value
-                if case .failure = result { BackupManager.shared.savePendingRecords(d) }
+                if case .failure = result,
+                   let pending = CloudFileManager.shared.pendingRecordsSnapshot,
+                   let snapshot = try? JSONEncoder().encode(pending) { BackupManager.shared.savePendingRecords(snapshot) }
                 await MainActor.run {
+                    self.pendingRetryInProgress = false
                     guard saveRevision == self.recordsRevision else { return }
                     self.efficiencyStore?.refreshCache(with: recordsToSave, forceYesterday: true)
                     switch result {
                     case .success(false):
-                        break
-                    case .success(true):
                         self.hasUnsyncedRecords = false
-                        self.loadedCloudHash = CloudFileManager.hash(d)
+                        self.load()
+                    case .success(true):
+                        for url in self.pendingCommandAcknowledgements {
+                            do { try FileManager.default.removeItem(at: url) }
+                            catch { print("[TimerSync] Cannot acknowledge action: \(error)") }
+                        }
+                        self.pendingCommandAcknowledgements.removeAll()
+                        self.hasUnsyncedRecords = false
+                        self.loadedCloudHash = nil // Reconfirm the authoritative head; another device may have committed meanwhile.
+                        self.replaceAllOnNextSave = false
                         self.lastSuccessfulCloudLoadDate = Date()
                         CloudSyncManager.shared.ignoreNextUpdate(relativePath: "记录/\(self.recordsFileName)")
                         CloudSyncManager.shared.noteRecordsWriteResult("本机已写入 iCloud 文件，等待上传确认")
@@ -3519,65 +3573,71 @@ extension TimeStore {
 
 extension TimeStore {
 
-    /// 【361号物理对齐】：启动新记录，确保旧记录 A 在 t 点结算并清洗，新记录 B 在 t 点启动并清洗
+    /// Ordinary switches never run overlap repair, merging, absorption, or gap filling.
     func start(category: String, subCategory: String? = nil, at clickTime: Date = Date()) {
+        let now = Date()
+        guard clickTime.timeIntervalSinceReferenceDate.isFinite, clickTime <= now else {
+            rejectRecordMutation("点击时间超过当前时间，未开始任务。", phase: "switch.request",
+                context: [TimeRecord(category: category, subCategory: subCategory, startTime: clickTime, endTime: .distantFuture)])
+            return
+        }
         lock.lock(); defer { lock.unlock() }
         if isSyncingFromCloud || isInitialLoading { return }
-        
-        // 1. 分类一致性拦截：如果目标大类和子类完全没变，则忽略请求
-        if let cur = records.last(where: { $0.isOngoing }),
-           cur.category == category && cur.subCategory == subCategory { return }
-        
-        performBatchUpdate {
-            // 暂存点击时间 t (Junction Time)
-            let t = clickTime
-            
-            // 2. 结束并清洗刚刚正在进行的记录 A
-            if let ongoingIdx = self.records.lastIndex(where: { $0.isOngoing }) {
-                let recordA = self.records[ongoingIdx]
-                
-                // 将 A 的终点锁定在 t
-                let finalizedA = TimeRecord(
-                    id: recordA.id,
-                    category: recordA.category,
-                    subCategory: recordA.subCategory,
-                    startTime: recordA.startTime,
-                    endTime: t
-                )
-                // “洗一遍” A：处理 A 与其左侧或编辑范围内的冲突
-                self.processNewRecord_Safe(targetA: finalizedA, scopeRef: recordA)
+        guard prepareForRecordEdit(from: currentRecord?.startTime ?? clickTime, through: clickTime) else { return }
+        do {
+            let before = records
+            let result = try RecordMutationEngine.switchAction(records: before, category: category,
+                subCategory: subCategory, at: clickTime, now: Date())
+            var excluded: Set<UUID> = []
+            if let isolated = result.isolatedCurrent {
+                let issue = RecordIntegrity.Issue(code: "ambiguous_current_overlap", recordIDs: [isolated.id])
+                guard RecordTimeDiagnostics.shared.capture([isolated], phase: "switch.isolated", issues: [issue]) else {
+                    rejectRecordMutation("无法保存异常现场，未修改记录。", phase: "switch.diagnostic-failed", context: [isolated])
+                    return
+                }
+                excluded.insert(isolated.id)
             }
-            
-            // 3. 新建并清洗正在进行的记录 B
-            let newOngoingB = TimeRecord(
-                category: category,
-                subCategory: subCategory,
-                startTime: t,
-                endTime: Date.distantFuture // 25:00 逻辑
-            )
-            
-            // “洗一遍” B：确保 B 与刚才结算的 A 完美吸附，并清理 B 之后的所有潜在冲突
-            self.processNewRecord_Safe(targetA: newOngoingB)
-            
-            print("[Action] 361号逻辑执行：\(category) 已在 \(Formatters.hhMM.string(from: t)) 无缝接龙并完成双重清洗")
-        }
+            let committed = performBatchUpdate(excludingUndoIDs: excluded) { self.records = result.records }
+            if committed && UserDefaults.standard.bool(forKey: "record_transition_trace_enabled"), result.started != nil || result.ended != nil {
+                RecordTimeDiagnostics.shared.capture([result.ended, result.started].compactMap { $0 }, phase: "switch.applied",
+                    note: "旧任务终点与新任务起点使用同一个点击时间；只切割旧任务本身。", allowNormal: true)
+            }
+        } catch { rejectRecordMutation(error.localizedDescription, phase: "switch.rejected", context: records) }
+    }
+
+    private func rejectRecordMutation(_ message: String, phase: String, context: [TimeRecord], issues: [RecordIntegrity.Issue]? = nil) {
+        let actual = issues ?? RecordIntegrity.issues(context, now: Date())
+        let reported = actual.isEmpty ? [RecordIntegrity.Issue(code: "mutation_rejected", recordIDs: context.map(\.id))] : actual
+        let saved = RecordTimeDiagnostics.shared.capture(context, phase: phase, issues: reported, note: message)
+        recordEditErrorMessage = message + (saved ? "诊断已记录。" : "诊断写入也失败，请检查可用存储空间。")
+        if isUndoGrouping { recordMutationFailure = recordEditErrorMessage }
     }
 
     func editRecord(original: TimeRecord, newCategory: String, newStart: Date, newEnd: Date) {
+        let draft = TimeRecord(id: original.id, category: newCategory,
+            subCategory: newCategory == original.category ? original.subCategory : nil, startTime: newStart, endTime: newEnd)
+        let issues = RecordIntegrity.timeIssues(draft, now: Date())
+        guard issues.isEmpty else { rejectRecordMutation("记录时间异常，未修改。", phase: "edit.request", context: [draft], issues: issues); return }
+        guard prepareForRecordEdit(from: min(original.startTime, newStart), through: max(original.isOngoing ? Date() : original.endTime, draft.isOngoing ? Date() : newEnd)) else { return }
         lock.lock(); defer { lock.unlock() }
         performBatchUpdate {
-            let refinedNew = TimeRecord(id: original.id, category: newCategory, subCategory: nil, startTime: newStart, endTime: newEnd)
-            processNewRecord_Safe(targetA: refinedNew, scopeRef: original)
+            do { self.records = try RecordMutationEngine.replace(records: records, id: original.id, with: draft, now: Date()) }
+            catch { rejectRecordMutation(error.localizedDescription, phase: "edit.rejected", context: [draft]) }
         }
     }
-    
+
     func editOngoing(newStart: Date, newCategory: String) {
+        let proposed = TimeRecord(id: currentRecord?.id ?? UUID(), category: newCategory, startTime: newStart, endTime: .distantFuture)
+        let issues = RecordIntegrity.timeIssues(proposed, now: Date())
+        guard issues.isEmpty else { rejectRecordMutation("开始时间超过当前时间，未修改。", phase: "edit-current.request", context: [proposed], issues: issues); return }
+        guard prepareForRecordEdit(from: min(currentRecord?.startTime ?? newStart, newStart), through: Date()) else { return }
         lock.lock(); defer { lock.unlock() }
         performBatchUpdate {
-            if let ongoing = records.last(where: { $0.isOngoing }) {
-                let refinedOngoing = TimeRecord(id: ongoing.id, category: newCategory, subCategory: nil, startTime: newStart, endTime: Date.distantFuture)
-                processNewRecord_Safe(targetA: refinedOngoing, scopeRef: ongoing)
-            }
+            guard let current = currentRecord else { rejectRecordMutation("没有可修改的当前任务。", phase: "edit-current.missing", context: []); return }
+            let draft = TimeRecord(id: current.id, category: newCategory,
+                subCategory: newCategory == current.category ? current.subCategory : nil, startTime: newStart, endTime: .distantFuture)
+            do { self.records = try RecordMutationEngine.replace(records: records, id: current.id, with: draft, now: Date()) }
+            catch { rejectRecordMutation(error.localizedDescription, phase: "edit-current.rejected", context: [draft]) }
         }
     }
 }
@@ -3591,6 +3651,10 @@ extension TimeStore {
         self.lock.lock()
         defer { self.lock.unlock() }
         
+        guard !isUndoGrouping else { return }
+        let issues = RecordIntegrity.issues(records, now: Date())
+        guard issues.isEmpty else { rejectRecordMutation("检测到异常记录，未保存。", phase: "sort-save.rejected", context: records, issues: issues); return }
+        records = MonthlyRecordArchive.normalize(records, now: Date()).valid
         var ongoingRecord: TimeRecord? = nil
         // 1. 提取进行中的记录（如果有）
         if let last = records.last, last.isOngoing {
@@ -3613,16 +3677,38 @@ extension TimeStore {
         self.syncToAppGroup()
     }
     
-    func performBatchUpdate(_ block: () -> Void) {
-        if isUndoGrouping { block(); return }
+    @discardableResult
+    func performBatchUpdate(excludingUndoIDs: Set<UUID> = [], _ block: () -> Void) -> Bool {
+        if isUndoGrouping { block(); return recordMutationFailure == nil }
+        let now = Date(), original = records
+        let baselineIssues = RecordIntegrity.issues(original, now: now)
+        guard RecordTimeDiagnostics.shared.capture(original, phase: "batch.before", now: now, issues: baselineIssues) else {
+            recordEditErrorMessage = "无法保存异常诊断，本次未修改。"
+            return false
+        }
+        let before = RecordIntegrity.sanitize(original, now: now).valid.filter { !excludingUndoIDs.contains($0.id) }
+        let undoBefore = undoStack, redoBefore = redoStack, monthsBefore = loadedMonths, editBefore = latestRecordEditAt
+        records = before
+        recordMutationFailure = nil
         isUndoGrouping = true
-        undoStack.append(UndoSnapshot(records: records))
+        undoStack.append(UndoSnapshot(records: before))
         if undoStack.count > 30 { undoStack.removeFirst() }
         redoStack.removeAll()
         block()
         isUndoGrouping = false
+        let issues = RecordIntegrity.regressions(before: undoStack.last?.records ?? before, after: records, now: Date())
+        if recordMutationFailure != nil || !issues.isEmpty {
+            if !issues.isEmpty { rejectRecordMutation("本次修改产生异常时间或记录结构错误，未保存。", phase: "batch.rejected", context: records, issues: issues) }
+            records = before; undoStack = undoBefore; redoStack = redoBefore
+            loadedMonths = monthsBefore; latestRecordEditAt = editBefore
+            syncToAppGroup()
+            return false
+        }
+        if records != original { sortAndSave() }
+        else { _ = undoStack.popLast(); syncToAppGroup() }
+        return true
     }
-    
+
     func undo() {
         lock.lock(); defer { lock.unlock() }
         guard let p = undoStack.popLast() else { return }
@@ -3639,20 +3725,83 @@ extension TimeStore {
         sortAndSave()
     }
     
-    @objc func checkForExternalUpdates() {
-        if isSyncingFromCloud || isInitialLoading { return }
-        guard let shared = UserDefaults(suiteName: appGroupIdentifier),
-              let d = shared.data(forKey: sharedKey),
-              let ext = try? JSONDecoder().decode(CurrentState.self, from: d) else { return }
-        let cur = self.currentRecord
-        if cur == nil || cur?.category != ext.category || abs(cur?.startTime.timeIntervalSince(ext.startTime) ?? 0) > 2.0 {
-            DispatchQueue.main.async { self.start(category: ext.category, at: ext.startTime) }
+    func pollLatestCloudRecords() {
+        guard !cloudPulseInProgress, !hasUnsyncedRecords, !isSyncingFromCloud, !isInitialLoading,
+              Date().timeIntervalSince(lastCloudPulse) >= 3 else { return }
+        cloudPulseInProgress = true
+        lastCloudPulse = Date()
+        DispatchQueue.global(qos: .utility).async {
+            let snapshot = CloudFileManager.shared.iCloudRecordsURL.flatMap { try? LatestCloudFile.read($0) }
+            let digest = snapshot.map { CloudFileManager.hash($0.data) }
+            let legacyExists = CloudFileManager.shared.iCloudRecordsURL.map { head in
+                ["timeRecords.json", "timeRecords_v20.json"].contains {
+                    FileManager.default.fileExists(atPath: head.deletingLastPathComponent().appendingPathComponent($0).path)
+                }
+            } ?? false
+            DispatchQueue.main.async {
+                self.cloudPulseInProgress = false
+                if let digest, digest != self.loadedCloudHash || self.requestedMonths != self.loadedMonths || legacyExists { self.load() }
+                else if digest == nil && !self.hasSuccessfullyLoaded { self.load() }
+            }
         }
     }
-    
+
+    func retryLatestRecordsIfNeeded() {
+        guard hasUnsyncedRecords, !pendingRetryInProgress, !isSyncingFromCloud, !isInitialLoading,
+              Date().timeIntervalSince(lastPendingRetry) >= 3 else { return }
+        pendingRetryInProgress = true
+        lastPendingRetry = Date()
+        // Reconcile remote and local timestamps before attempting a retry.
+        load()
+        pendingRetryInProgress = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.hasUnsyncedRecords, !self.isSyncingFromCloud else { return }
+            self.save(isRetry: true)
+        }
+    }
+
+    @objc func checkForExternalUpdates() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.checkForExternalUpdates() }
+            return
+        }
+        guard !isSyncingFromCloud, !isInitialLoading, hasSuccessfullyLoaded, !isUndoGrouping else { return }
+        // Only explicit commands are input. Shared display state is output, never a command.
+        if let shared = UserDefaults(suiteName: appGroupIdentifier),
+           let data = shared.data(forKey: TimerActionMailbox.legacyKey),
+           let legacy = try? JSONDecoder().decode(TimerActionCommand.self, from: data) {
+            do {
+                try TimerActionMailbox.enqueue(category: legacy.category, at: legacy.startTime)
+                shared.removeObject(forKey: TimerActionMailbox.legacyKey)
+            } catch { print("[TimerSync] Cannot migrate pending action: \(error)") }
+        }
+        var receivedCommand = false
+        for (url, command) in TimerActionMailbox.pending() {
+            guard !pendingCommandAcknowledgements.contains(url) else { continue }
+            pendingCommandAcknowledgements.insert(url)
+            receivedCommand = true
+            // A retried command already represented by a record must not be replayed.
+            let applied = records.contains { $0.category == command.category && abs($0.startTime.timeIntervalSince(command.startTime)) < 0.001 }
+            if !applied && command.startTime >= latestRecordEditAt {
+                externalCommandEditAt = command.startTime
+                start(category: command.category, at: command.startTime)
+                externalCommandEditAt = nil
+            }
+        }
+        if receivedCommand { save(isRetry: true); syncToAppGroup() }
+    }
+
+
     func syncToAppGroup() {
+        guard !isUndoGrouping else { return }
         #if os(iOS) && !targetEnvironment(macCatalyst)
-        Task { await startLiveActivity() }
+        let previousUpdate = liveActivityUpdateTask
+        previousUpdate?.cancel()
+        liveActivityUpdateTask = Task { @MainActor [weak self] in
+            await previousUpdate?.value
+            guard !Task.isCancelled else { return }
+            await self?.startLiveActivity()
+        }
         #endif
         guard let shared = UserDefaults(suiteName: appGroupIdentifier) else { return }
         if let c = currentRecord {
@@ -3674,10 +3823,16 @@ extension TimeStore {
         }
         let s = UserDefaults(suiteName: appGroupIdentifier)?.double(forKey: "sharedYesterdayScore") ?? 0.0
         let content = ActivityContent(state: TimeTrackerAttributes.ContentState(category: current.category, startTime: current.startTime, yesterdayScore: s), staleDate: nil)
-        if let e = Activity<TimeTrackerAttributes>.activities.first {
-            await e.update(content)
+        guard !Task.isCancelled else { return }
+        let activities = Activity<TimeTrackerAttributes>.activities
+        if activities.isEmpty {
+            do { _ = try Activity.request(attributes: TimeTrackerAttributes(), content: content, pushType: nil) }
+            catch { print("[TimerSync] Live Activity request failed: \(error)") }
         } else {
-            _ = try? Activity.request(attributes: TimeTrackerAttributes(), content: content, pushType: nil)
+            for activity in activities {
+                guard !Task.isCancelled else { return }
+                await activity.update(content)
+            }
         }
     }
     #endif
@@ -3697,7 +3852,70 @@ extension TimeStore {
         }
     }
     
+    private func prepareForRecordEdit(from start: Date, through end: Date) -> Bool {
+        let cal = Calendar.current
+        let lower = cal.date(byAdding: .day, value: -1, to: min(start, end))!
+        let upper = cal.date(byAdding: .day, value: 2, to: max(start, end))!
+        var needed = loadedMonths
+        var cursor = cal.dateInterval(of: .month, for: lower)!.start
+        while cursor <= upper {
+            needed.insert(MonthlyRecordArchive.month(cursor))
+            cursor = cal.date(byAdding: .month, value: 1, to: cursor)!
+        }
+        if needed.isSubset(of: loadedMonths) { return true }
+        guard !isSyncingFromCloud, !isInitialLoading else {
+            recordEditErrorMessage = "记录尚未加载完成，本次未修改，请稍后重试。"
+            if isUndoGrouping { recordMutationFailure = recordEditErrorMessage }
+            return false
+        }
+        do {
+            let loaded = try CloudFileManager.shared.loadMonthlyRecords(months: needed)
+            let priorMonths = loadedMonths
+            let additions = loaded.records.filter { !$0.isOngoing && !priorMonths.contains(MonthlyRecordArchive.month($0.startTime)) }
+            if isUndoGrouping || latestRecordEditAt > loaded.editedAt {
+                records = MonthlyRecordArchive.mergingHistory(additions, with: records)
+            } else {
+                records = loaded.records
+                latestRecordEditAt = loaded.editedAt
+            }
+            if isUndoGrouping, let last = undoStack.indices.last {
+                undoStack[last] = UndoSnapshot(records: MonthlyRecordArchive.mergingHistory(additions, with: undoStack[last].records))
+            }
+            loadedMonths = needed; requestedMonths.formUnion(needed)
+            return true
+        } catch {
+            requestedMonths.formUnion(needed)
+            DispatchQueue.main.async { [weak self] in self?.load() }
+            recordEditErrorMessage = "相关历史记录尚未下载完成，本次未修改，请稍后重试。"
+            if isUndoGrouping { recordMutationFailure = recordEditErrorMessage }
+            return false
+        }
+    }
+
+    private func requestMonth(_ date: Date) {
+        let key = MonthlyRecordArchive.month(date)
+        guard requestedMonths.insert(key).inserted else { return }
+        DispatchQueue.main.async { [weak self] in self?.load() }
+    }
+
+    func completeRecordsForExport() throws -> [TimeRecord] {
+        let all = try CloudFileManager.shared.loadMonthlyRecords(months: nil).records
+        let untouched = all.filter { !$0.isOngoing && !loadedMonths.contains(MonthlyRecordArchive.month($0.startTime)) }
+        return MonthlyRecordArchive.mergingHistory(untouched, with: records)
+    }
+
+    @MainActor
+    func completeRecordsForExportAsync() async throws -> [TimeRecord] {
+        let local = records, months = loadedMonths
+        let all = try await Task.detached(priority: .utility) {
+            try CloudFileManager.shared.loadMonthlyRecords(months: nil).records
+        }.value
+        let untouched = all.filter { !$0.isOngoing && !months.contains(MonthlyRecordArchive.month($0.startTime)) }
+        return MonthlyRecordArchive.mergingHistory(untouched, with: local)
+    }
+
     func getRecordsForDisplay(for date: Date) -> [TimeRecord] {
+        requestMonth(date)
         let cal = Calendar.current
         let sDay = cal.startOfDay(for: date)
         let eDay = cal.date(byAdding: .day, value: 1, to: sDay)!
@@ -3715,180 +3933,6 @@ extension TimeStore {
         }
     }
     
-    func splitCrossDayHelper(_ record: TimeRecord) -> [TimeRecord] {
-        if record.isOngoing { return [record] }
-        let cal = Calendar.current
-        var segments: [TimeRecord] = []
-        var currentStart = record.startTime
-        let finalEnd = record.endTime
-        let category = record.category
-        while !cal.isDate(currentStart, inSameDayAs: finalEnd) && currentStart < finalEnd {
-            let nextMidnight = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: currentStart))!
-            if nextMidnight > currentStart {
-                let seg = TimeRecord(category: category, subCategory: nil, startTime: currentStart, endTime: Swift.min(nextMidnight, finalEnd))
-                if seg.duration >= 1 { segments.append(seg) }
-            }
-            currentStart = nextMidnight
-        }
-        if finalEnd > currentStart {
-            let seg = TimeRecord(category: category, subCategory: nil, startTime: currentStart, endTime: finalEnd)
-            if seg.duration >= 1 { segments.append(seg) }
-        }
-        return segments
-    }
-
-    /// 【361-2号核心重构】：核心安检口算法，实装微小记录物理吞噬协议
-    func processNewRecord_Safe(targetA: TimeRecord, scopeRef: TimeRecord? = nil) {
-        
-        // --- Step 0: 环境准备 ---
-        var A = targetA; A.subCategory = targetA.subCategory
-        let cal = Calendar.current
-        var minStart = A.startTime; var maxEnd = A.isOngoing ? A.startTime : A.endTime
-        
-        if let B_ref = scopeRef {
-            if B_ref.startTime < minStart { minStart = B_ref.startTime }
-            let bEnd = B_ref.isOngoing ? Date() : B_ref.endTime
-            if bEnd > maxEnd { maxEnd = bEnd }
-        }
-        
-        let windowStart = cal.startOfDay(for: cal.date(byAdding: .day, value: -1, to: minStart)!)
-        let windowEnd = cal.date(byAdding: .day, value: 2, to: cal.startOfDay(for: maxEnd))!
-        
-        var L: [TimeRecord] = []; var Rest: [TimeRecord] = []
-        for r in self.records {
-            let rEnd = r.isOngoing ? Date.distantFuture : r.endTime
-            if r.startTime < windowEnd && rEnd > windowStart { L.append(r) } else { Rest.append(r) }
-        }
-        L.sort { $0.startTime < $1.startTime }
-        
-        // --- Step 0.3: 微小记录物理吞噬 (针对快速点击导致的 0min 堆积) ---
-        if !A.isOngoing && A.duration < 60 {
-            // 寻找物理终点紧邻 A 起点的记录 C（允许 2 秒误差）
-            if let cIdx = L.firstIndex(where: { abs($0.endTime.timeIntervalSince(A.startTime)) < 2.0 }) {
-                // 执行物理吞噬：前一个记录 C 延长至 A 的终点
-                var C = L[cIdx]
-                C.endTime = A.endTime
-                L[cIdx] = C
-                
-                // 如果被修改的是旧的 ongoing 副本，物理移除
-                if let old = scopeRef { L.removeAll { $0.id == old.id } }
-                
-                self.records = Rest + L
-                self.sortAndSave()
-                print("[Algorithm] 361-2号补丁：已吞噬不足60秒的微小记录碎片")
-                return // A 已被 C 吸收，逻辑闭环退出
-            }
-        }
-
-        // --- Step 0.5: 对账快照捕捉 ---
-        var debugInfo = AlgorithmDebugData(recordA: A, listL: L)
-        if let bIdx = L.firstIndex(where: {
-            let bE = $0.isOngoing ? Date.distantFuture : $0.endTime
-            return $0.startTime < A.startTime && bE > (A.startTime + 1.0)
-        }) {
-            debugInfo.recordB = L[bIdx]; if bIdx > 0 { debugInfo.recordC = L[bIdx - 1] }
-        }
-        if !A.isOngoing {
-            if let dIdx = L.firstIndex(where: {
-                let dE = $0.isOngoing ? Date.distantFuture : $0.endTime
-                return $0.startTime < (A.endTime - 1.0) && dE > A.endTime
-            }) {
-                debugInfo.recordD = L[dIdx]; if dIdx < L.count - 1 { debugInfo.recordE = L[dIdx + 1] }
-            }
-        }
-        DispatchQueue.main.async { self.lastAlgorithmDebug = debugInfo }
-        
-        let aEndLimit = A.isOngoing ? Date.distantFuture : A.endTime
-
-        // --- Step 1: 初始吞并 ---
-        L.removeAll { R in
-            let rEnd = R.isOngoing ? Date.distantFuture : R.endTime
-            return R.startTime >= A.startTime && rEnd <= aEndLimit
-        }
-        
-        // --- Step 2: 左边界处理 (1秒容差) ---
-        var i = 0
-        while i < L.count {
-            let B = L[i]
-            let bEnd = B.isOngoing ? Date.distantFuture : B.endTime
-            if B.startTime < A.startTime && bEnd > (A.startTime + 1.0) {
-                if B.category == A.category {
-                    if i > 0 { L[i-1].endTime = A.startTime }
-                    if bEnd > aEndLimit { L[i].startTime = A.startTime } else { L.remove(at: i); continue }
-                } else {
-                    let fragDur = A.startTime.timeIntervalSince(B.startTime)
-                    if fragDur >= 60 {
-                        var fragment = B; fragment.endTime = A.startTime; L.insert(fragment, at: i); i += 1; L[i].startTime = A.startTime
-                    } else {
-                        if i > 0 { L[i-1].endTime = A.startTime }; L[i].startTime = A.startTime
-                    }
-                    if (L[i].isOngoing ? Date.distantFuture : L[i].endTime) > aEndLimit { L[i].startTime = aEndLimit }
-                    else { L.remove(at: i); continue }
-                }
-            }
-            i += 1
-        }
-        
-        // --- Step 3: 右边界处理 (1秒容差) ---
-        if !A.isOngoing {
-            var j = 0
-            while j < L.count {
-                let D = L[j]
-                let dEnd = D.isOngoing ? Date.distantFuture : D.endTime
-                if D.startTime < (A.endTime - 1.0) && dEnd > A.endTime {
-                    if D.category == A.category {
-                        if j + 1 < L.count { L[j+1].startTime = A.endTime }
-                        L.remove(at: j); continue
-                    } else {
-                        if dEnd.timeIntervalSince(A.endTime) >= 60 { L[j].startTime = A.endTime }
-                        else { if j + 1 < L.count { L[j+1].startTime = A.endTime }; L.remove(at: j); continue }
-                    }
-                }
-                j += 1
-            }
-        }
-        
-        // --- Step 4: 最终缝合 ---
-        if let old = scopeRef { L.removeAll { $0.id == old.id } }
-        L.append(A); L.sort { $0.startTime < $1.startTime }
-        if let idx = L.firstIndex(where: { $0.id == A.id }) {
-            var finalA = L[idx]
-            if idx > 0 && L[idx-1].category == finalA.category { finalA.startTime = L[idx-1].startTime; L.remove(at: idx-1) }
-            if let curI = L.firstIndex(where: { $0.id == finalA.id }), curI < L.count - 1 && L[curI+1].category == finalA.category {
-                finalA.endTime = L[curI+1].endTime; L.remove(at: curI+1); L[curI] = finalA
-            } else if let curI = L.firstIndex(where: { $0.id == finalA.id }) { L[curI] = finalA }
-        }
-        
-        // --- Step 5: 跨日裁断 ---
-        var tempL: [TimeRecord] = []
-        for r in L { tempL.append(contentsOf: splitCrossDayHelper(r)) }
-        L = tempL
-        
-        // --- Step 6: 连贯处理 ---
-        L.sort { $0.startTime < $1.startTime }
-        if L.count > 1 {
-            for k in 1..<L.count {
-                if !L[k-1].isOngoing { L[k].startTime = L[k-1].endTime }
-            }
-        }
-        
-        // --- Step 7: 存档与外向吸附 ---
-        if !L.isEmpty {
-            if let restPrev = Rest.filter({ $0.endTime <= windowStart }).sorted(by: { $0.endTime < $1.endTime }).last {
-                let gap = L[0].startTime.timeIntervalSince(restPrev.endTime)
-                if abs(gap) <= 60 { L[0].startTime = restPrev.endTime }
-            }
-            if let lastIdx = L.indices.last, !L[lastIdx].isOngoing {
-                if let restNext = Rest.filter({ $0.startTime >= windowEnd }).sorted(by: { $0.startTime < $1.startTime }).first {
-                    let gap = restNext.startTime.timeIntervalSince(L[lastIdx].endTime)
-                    if abs(gap) <= 60 { L[lastIdx].endTime = restNext.startTime }
-                }
-            }
-        }
-        
-        self.records = Rest + L
-        self.sortAndSave()
-    }
 }
 
 // MARK: - TimeStore Part 6 - v171 - 物理补全记录增删工具方法
@@ -3897,14 +3941,18 @@ extension TimeStore {
     
     /// 【修复点】：物理补全 addRecord，适配补录页面调用
     func addRecord(category: String, startTime: Date, endTime: Date) {
-        lock.lock(); defer { lock.unlock() }
+        let draft = TimeRecord(category: category, startTime: startTime, endTime: endTime)
+        let issues = RecordIntegrity.timeIssues(draft, now: Date())
+        guard issues.isEmpty, !draft.isOngoing else { rejectRecordMutation("记录时间异常，未新增。", phase: "add.request", context: [draft], issues: issues); return }
         if category == "空" { return }
+        guard prepareForRecordEdit(from: startTime, through: endTime) else { return }
+        lock.lock(); defer { lock.unlock() }
         performBatchUpdate {
-            // 物理转发至核心安检口执行 Step 0-6
-            processNewRecord_Safe(targetA: TimeRecord(category: category, subCategory: nil, startTime: startTime, endTime: endTime))
+            do { self.records = try RecordMutationEngine.add(records: records, draft: draft, now: Date()) }
+            catch { rejectRecordMutation(error.localizedDescription, phase: "add.rejected", context: [draft]) }
         }
     }
-    
+
     /// 【修复点】：物理补全 deleteRecord
     func deleteRecord(_ r: TimeRecord) {
         lock.lock(); defer { lock.unlock() }
@@ -3917,18 +3965,27 @@ extension TimeStore {
     }
     
     func restore(from b: BackupFile) {
-        if let data = try? Data(contentsOf: b.url), let r = try? JSONDecoder().decode([TimeRecord].self, from: data) {
-            self.records = r
-            self.isFreshLaunch = false
-            self.save()
-            self.syncToAppGroup()
-            self.objectWillChange.send()
+        guard let data = try? Data(contentsOf: b.url) else { return }
+        var restored = try? JSONDecoder().decode([TimeRecord].self, from: data)
+        if let pending = try? JSONDecoder().decode(CloudFileManager.PendingRecordsSnapshot.self, from: data),
+           let active = try? JSONDecoder().decode([TimeRecord].self, from: pending.data) {
+            if let months = pending.loadedMonths, let all = try? completeRecordsForExport() {
+                restored = all.filter { !$0.isOngoing && !months.contains(MonthlyRecordArchive.month($0.startTime)) } + active
+            } else if pending.loadedMonths == nil { restored = active }
         }
+        guard let restored else { return }
+        self.records = MonthlyRecordArchive.normalize(restored, now: Date()).valid
+        self.replaceAllOnNextSave = true
+        self.isFreshLaunch = false
+        self.save()
+        self.syncToAppGroup()
+        self.objectWillChange.send()
     }
-    
+
     func clearAllData() {
         lock.lock(); defer { lock.unlock() }
         records.removeAll()
+        replaceAllOnNextSave = true
         save()
         syncToAppGroup()
     }
@@ -3972,40 +4029,26 @@ extension TimeStore {
     
     // --- 快捷上下文动作 ---
     
-    func eatNext(_ r: TimeRecord) {
+    private func mergeExplicitly(_ record: TimeRecord, direction: Int, useNeighbourCategory: Bool) {
+        guard prepareForRecordEdit(from: record.startTime, through: record.isOngoing ? Date() : record.endTime) else { return }
         lock.lock(); defer { lock.unlock() }
-        if let i = records.firstIndex(where: {$0.id == r.id}), i < records.count - 1 {
-            if !records[i+1].isOngoing {
-                editRecord(original: r, newCategory: r.category, newStart: r.startTime, newEnd: records[i+1].endTime)
-            }
+        guard let index = records.firstIndex(where: { $0.id == record.id }), records.indices.contains(index + direction) else { return }
+        let target = records[index]
+        let neighbour = records[index + direction]
+        let category = useNeighbourCategory ? neighbour.category : target.category
+        performBatchUpdate {
+            do {
+                self.records = try RecordMutationEngine.merge(records: records, targetID: record.id,
+                    neighbourID: neighbour.id, category: category, now: Date())
+            } catch { rejectRecordMutation(error.localizedDescription, phase: "manual-merge.rejected", context: [record, neighbour]) }
         }
     }
-    
-    func eatPrevious(_ r: TimeRecord) {
-        lock.lock(); defer { lock.unlock() }
-        if let i = records.firstIndex(where: {$0.id == r.id}), i > 0 {
-            editRecord(original: r, newCategory: r.category, newStart: records[i-1].startTime, newEnd: r.endTime)
-        }
-    }
-    
-    func mergeIntoPrevious(_ r: TimeRecord) {
-        lock.lock(); defer { lock.unlock() }
-        if let i = records.firstIndex(where: {$0.id == r.id}), i > 0 {
-            let pC = records[i-1].category
-            if r.isOngoing { editOngoing(newStart: r.startTime, newCategory: pC) }
-            else { editRecord(original: r, newCategory: pC, newStart: r.startTime, newEnd: r.endTime) }
-        }
-    }
-    
-    func mergeIntoNext(_ r: TimeRecord) {
-        lock.lock(); defer { lock.unlock() }
-        if let i = records.firstIndex(where: {$0.id == r.id}), i < records.count - 1 {
-            let nC = records[i+1].category
-            if r.isOngoing { editOngoing(newStart: r.startTime, newCategory: nC) }
-            else { editRecord(original: r, newCategory: nC, newStart: r.startTime, newEnd: r.endTime) }
-        }
-    }
-    
+
+    func eatNext(_ r: TimeRecord) { mergeExplicitly(r, direction: 1, useNeighbourCategory: false) }
+    func eatPrevious(_ r: TimeRecord) { mergeExplicitly(r, direction: -1, useNeighbourCategory: false) }
+    func mergeIntoPrevious(_ r: TimeRecord) { mergeExplicitly(r, direction: -1, useNeighbourCategory: true) }
+    func mergeIntoNext(_ r: TimeRecord) { mergeExplicitly(r, direction: 1, useNeighbourCategory: true) }
+
     func extendOneHour(_ r: TimeRecord) {
         lock.lock(); defer { lock.unlock() }
         if !r.isOngoing {
@@ -4022,19 +4065,14 @@ extension TimeStore {
     func updateCategory(for r: TimeRecord, to nC: String) {
         lock.lock(); defer { lock.unlock() }
         if r.isOngoing { editOngoing(newStart: r.startTime, newCategory: nC) }
-        else { editRecord(original: r, newCategory: r.category, newStart: r.startTime, newEnd: r.endTime) }
+        else { editRecord(original: r, newCategory: nC, newStart: r.startTime, newEnd: r.endTime) }
     }
     
     func mergePreviousIntoOngoing() {
-        lock.lock(); defer { lock.unlock() }
-        guard let cur = currentRecord,
-              let i = records.firstIndex(where: { $0.id == cur.id }),
-              i > 0,
-              abs(records[i-1].endTime.timeIntervalSince(cur.startTime)) < 2.0 else { return }
-        let nS = records[i-1].startTime
-        records.remove(at: i-1)
-        editOngoing(newStart: nS, newCategory: cur.category)
+        guard let current = currentRecord else { return }
+        mergeExplicitly(current, direction: -1, useNeighbourCategory: false)
     }
+
 }
 
 
@@ -4068,9 +4106,10 @@ class CloudSyncManager: ObservableObject {
     private var query: NSMetadataQuery?
     private var debounceTimer: Timer?
     
-    // 缓存最后更新时间：Key = relativePath (e.g. "记录/timeRecords_v20.json")
+    // 缓存最后更新时间：Key = relativePath (e.g. "记录/current.json")
     private var lastKnownUpdateDates: [String: Date] = [:]
     private var lastKnownDownloadStatuses: [String: String] = [:]
+    private var lastKnownConflictStates: [String: Bool] = [:]
     
     // 忽略列表：Key = relativePath
     private var ignoreList: [String: Date] = [:]
@@ -4095,16 +4134,22 @@ class CloudSyncManager: ObservableObject {
         StartupDiagnostics.shared.mark("CloudSyncManager.startObserving")
         
         let q = NSMetadataQuery()
-        q.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
+        if let head = CloudFileManager.shared.iCloudRecordsURL {
+            q.searchScopes = [head.deletingLastPathComponent().deletingLastPathComponent()]
+        } else { q.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope] }
         let activeFileNames = [
-            "timeRecords_v20.json", "efficiency_data_final_v20.json",
-            "weekly_targets_v20.json", "efficiency_settings_v20.json",
+            "current.json", "efficiency_data.json",
+            "weekly_targets", "efficiency_settings.json",
             "sub_categories_config.json", "global_settings.json"
         ]
-        q.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: activeFileNames.map {
-            NSPredicate(format: "%K == %@", NSMetadataItemFSNameKey, $0)
-        })
-        
+        q.predicate = NSCompoundPredicate(orPredicateWithSubpredicates:
+            activeFileNames.map { NSPredicate(format: "%K == %@", NSMetadataItemFSNameKey, $0) } +
+            [NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, "????-??.json"),
+             NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, "????.json")] +
+            ["timeRecords_v20.json", "timeRecords.json", "weekly_targets_v20.json", "weekly_targets.json", "efficiency_data_final_v20.json", "efficiency_settings_v20.json"].map {
+                NSPredicate(format: "%K == %@", NSMetadataItemFSNameKey, $0)
+            })
+
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(processUpdates), name: .NSMetadataQueryDidFinishGathering, object: q)
         nc.addObserver(self, selector: #selector(processUpdates), name: .NSMetadataQueryDidUpdate, object: q)
@@ -4199,13 +4244,7 @@ class CloudSyncManager: ObservableObject {
             
             lock.lock()
             
-            // 1. 检查是否在忽略名单中 (5秒内的写入视为回声)
-            if let lastWrite = ignoreList[relativePath], Date().timeIntervalSince(lastWrite) < 5.0 {
-                lastKnownUpdateDates[relativePath] = modDate
-                lock.unlock()
-                continue
-            }
-            
+            // Never hide an arriving remote version behind a time-based echo window.
             // 2. 检查是否未下载
             if status == NSMetadataUbiquitousItemDownloadingStatusNotDownloaded {
                 try? FileManager.default.startDownloadingUbiquitousItem(at: url)
@@ -4217,10 +4256,13 @@ class CloudSyncManager: ObservableObject {
             // 3. 检查是否真的是新变化
             let lastDate = lastKnownUpdateDates[relativePath] ?? Date.distantPast
             let previousStatus = lastKnownDownloadStatuses[relativePath]
+            let hasConflicts = (metaItem.value(forAttribute: NSMetadataUbiquitousItemHasUnresolvedConflictsKey) as? NSNumber)?.boolValue ?? false
+            let conflictChanged = lastKnownConflictStates[relativePath] != hasConflicts
+            lastKnownConflictStates[relativePath] = hasConflicts
             let downloadCompleted = (previousStatus == NSMetadataUbiquitousItemDownloadingStatusNotDownloaded && status != previousStatus)
                 || (previousStatus == NSMetadataUbiquitousItemDownloadingStatusDownloaded && status == NSMetadataUbiquitousItemDownloadingStatusCurrent)
             lastKnownDownloadStatuses[relativePath] = status
-            if modDate.timeIntervalSince(lastDate) > 1.1 || downloadCompleted {
+            if modDate != lastDate || downloadCompleted || conflictChanged {
                 lastKnownUpdateDates[relativePath] = modDate
                 globalRefreshNeeded = true
                 
@@ -6269,6 +6311,11 @@ struct MainView: View {
                 settingsStore.load()
             }
         }
+        .alert("暂时无法修改记录", isPresented: Binding(
+            get: { !timeStore.recordEditErrorMessage.isEmpty },
+            set: { if !$0 { timeStore.recordEditErrorMessage = "" } }
+        )) { Button("确定") { timeStore.recordEditErrorMessage = "" } }
+        message: { Text(timeStore.recordEditErrorMessage) }
     }
     
     func getThemeColor(_ s: Double) -> Color {
@@ -7524,6 +7571,10 @@ final class CloudFileManager: @unchecked Sendable {
     private let tombstoneSuffix = ".dead"
     private let watermarkKey = "cloud_sync_watermarks"
     private let recordsWriteQueue = DispatchQueue(label: "TimeTracker.records.cloudWrite")
+    private var lastTargetRetry = Date.distantPast
+    private let targetsQueue = DispatchQueue(label: "TimeTracker.targets.write")
+    private var monthlyArchive: MonthlyRecordArchive?
+    private(set) var lastRecordsHeadDigest: String?
     private var lastWrittenRecordsHash: String?
     private var latestAttemptedRecordsRevision = 0
     private var pendingRecordsURL: URL { getBackupsDir().appendingPathComponent("PendingCurrentTimeRecords.json") }
@@ -7531,16 +7582,26 @@ final class CloudFileManager: @unchecked Sendable {
     struct PendingRecordsSnapshot: Codable {
         let data: Data
         let expectedCloudHash: String?
+        var editedAt: Date? = nil
+        var loadedMonths: [String]? = nil
+        var replaceAll: Bool? = nil
     }
 
     var pendingRecordsSnapshot: PendingRecordsSnapshot? {
         guard let data = try? Data(contentsOf: pendingRecordsURL) else { return nil }
-        return try? JSONDecoder().decode(PendingRecordsSnapshot.self, from: data)
+        guard var snapshot = try? JSONDecoder().decode(PendingRecordsSnapshot.self, from: data) else { return nil }
+        if snapshot.editedAt == nil {
+            snapshot.editedAt = (try? pendingRecordsURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        }
+        return snapshot
     }
     var hasPendingRecordsFile: Bool { FileManager.default.fileExists(atPath: pendingRecordsURL.path) }
 
-    func discardPendingRecords() {
-        recordsWriteQueue.sync { try? FileManager.default.removeItem(at: pendingRecordsURL) }
+    func discardPendingRecords(ifMatching data: Data? = nil) {
+        recordsWriteQueue.sync {
+            if let data, pendingRecordsSnapshot?.data != data { return }
+            try? FileManager.default.removeItem(at: pendingRecordsURL)
+        }
     }
     
     private let legacyStateFileName = "currentRecordState_v20.json"
@@ -7558,7 +7619,7 @@ final class CloudFileManager: @unchecked Sendable {
         }
         iCloudRootLock.unlock()
 
-        guard let root = FileManager.default.url(forUbiquityContainerIdentifier: nil)?.appendingPathComponent("Documents") else {
+        guard let root = FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.com.Han.TimeTracker")?.appendingPathComponent("Documents") else {
             return nil
         }
 
@@ -7568,7 +7629,84 @@ final class CloudFileManager: @unchecked Sendable {
         return root
     }
 
-    var iCloudRecordsURL: URL? { iCloudRoot?.appendingPathComponent("记录/timeRecords_v20.json") }
+    private func retireMirror(_ oldName: String, as newName: String) throws {
+        let source = getLocalMirrorDir(.records).appendingPathComponent(oldName)
+        guard FileManager.default.fileExists(atPath: source.path) else { return }
+        let data = try Data(contentsOf: source)
+        let folder = getBackupsDir().appendingPathComponent("RecordMigration", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let label = URL(fileURLWithPath: newName).deletingPathExtension().lastPathComponent
+        try data.write(to: folder.appendingPathComponent("mirror-\(label)-\(Self.hash(data)).json"), options: .atomic)
+        try FileManager.default.removeItem(at: source)
+    }
+
+    func loadWeeklyTargets() throws -> Data? {
+        try targetsQueue.sync {
+            guard iCloudRoot != nil else { throw NSError(domain: "YearlyTargets", code: 1, userInfo: [NSLocalizedDescriptionKey: "iCloud 容器不可用"]) }
+            let data = try YearlyTargetArchive(root: getCloudDir(.records), backupRoot: getBackupsDir()).load()
+            if data != nil {
+                try retireMirror("weekly_targets_v20.json", as: "weekly_targets.json")
+                try retireMirror("weekly_targets.json", as: "weekly_targets.json")
+            }
+            return data
+        }
+    }
+
+    func saveWeeklyTargets(_ data: Data) {
+        let editedAt = Date()
+        targetsQueue.async {
+            do {
+                try YearlyTargetArchive.persistPending(data, editedAt: editedAt, backupRoot: self.getBackupsDir())
+                guard self.iCloudRoot != nil else { throw NSError(domain: "YearlyTargets", code: 1, userInfo: [NSLocalizedDescriptionKey: "iCloud 容器不可用，周目标已保留待重试"]) }
+                _ = try YearlyTargetArchive(root: self.getCloudDir(.records), backupRoot: self.getBackupsDir()).load()
+            }
+            catch { DebugLogCenter.appendCloud("周目标保存失败：\(error.localizedDescription)") }
+        }
+    }
+
+    func retryPendingTargets() {
+        targetsQueue.async {
+            guard Date().timeIntervalSince(self.lastTargetRetry) >= 3 else { return }
+            self.lastTargetRetry = Date()
+            guard self.iCloudRoot != nil else { return }
+            let store = YearlyTargetArchive(root: self.getCloudDir(.records), backupRoot: self.getBackupsDir())
+            guard FileManager.default.fileExists(atPath: store.pendingURL.path) else { return }
+            do {
+                _ = try store.load()
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .CloudFileDidChange, object: nil, userInfo: ["path": "记录/weekly_targets/"])
+                }
+            } catch { DebugLogCenter.appendCloud("周目标等待自动重试：\(error.localizedDescription)") }
+        }
+    }
+
+    private func archive() throws -> MonthlyRecordArchive {
+        if let monthlyArchive { return monthlyArchive }
+        guard iCloudRoot != nil else { throw NSError(domain: "MonthlyRecords", code: 2, userInfo: [NSLocalizedDescriptionKey: "iCloud 容器不可用"] ) }
+        let archive = MonthlyRecordArchive(root: getCloudDir(.records), backupRoot: getBackupsDir())
+        monthlyArchive = archive
+        return archive
+    }
+
+    func loadMonthlyRecords(months: Set<String>?) throws -> MonthlyRecordArchive.Loaded {
+        try recordsWriteQueue.sync {
+            let loaded = try archive().load(months: months)
+            let folder = getBackupsDir().appendingPathComponent("RecordMigration", isDirectory: true)
+            for name in ["timeRecords_v20.json", "timeRecords.json"] {
+                let old = getLocalMirrorDir(.records).appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: old.path) {
+                    let data = try Data(contentsOf: old)
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    try data.write(to: folder.appendingPathComponent("local-original-\(Self.hash(data)).json"), options: .atomic)
+                    try FileManager.default.removeItem(at: old)
+                }
+            }
+            lastRecordsHeadDigest = Self.hash(loaded.headData)
+            return loaded
+        }
+    }
+
+    var iCloudRecordsURL: URL? { iCloudRoot?.appendingPathComponent("记录/current.json") }
 
     var isCloudRecordsReadable: Bool {
         guard let url = iCloudRecordsURL, FileManager.default.fileExists(atPath: url.path) else { return false }
@@ -7578,15 +7716,15 @@ final class CloudFileManager: @unchecked Sendable {
 
     static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
-    func saveRecordsSafely(data: Data, expectedHash: String?, revision: Int) -> Result<Bool, Error> {
+    func saveRecordsSafely(data: Data, expectedHash: String?, revision: Int, editedAt: Date, loadedMonths: Set<String>, replaceAll: Bool) -> Result<Bool, Error> {
         recordsWriteQueue.sync {
             do {
                 if revision < latestAttemptedRecordsRevision { return .success(false) }
                 latestAttemptedRecordsRevision = revision
                 let baselineHash = lastWrittenRecordsHash ?? expectedHash
-                let snapshot = PendingRecordsSnapshot(data: data, expectedCloudHash: baselineHash)
+                let snapshot = PendingRecordsSnapshot(data: data, expectedCloudHash: baselineHash, editedAt: editedAt, loadedMonths: loadedMonths.sorted(), replaceAll: replaceAll)
                 try JSONEncoder().encode(snapshot).write(to: pendingRecordsURL, options: .atomic)
-                let localURL = getLocalMirrorDir(.records).appendingPathComponent("timeRecords_v20.json")
+                let localURL = getLocalMirrorDir(.records).appendingPathComponent("activeRecords.json")
                 try data.write(to: localURL, options: .atomic)
                 CloudSyncManager.shared.noteLocalRecordsSave()
                 guard let cloudURL = iCloudRecordsURL else {
@@ -7594,36 +7732,14 @@ final class CloudFileManager: @unchecked Sendable {
                 }
                 let folder = cloudURL.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                if FileManager.default.fileExists(atPath: cloudURL.path) {
-                    let status = try cloudURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus
-                    guard status == .current else {
-                        throw NSError(domain: "TimeTrackerSync", code: 2, userInfo: [NSLocalizedDescriptionKey: "云端文件尚未下载完成"])
-                    }
-                }
-                var coordinatorError: NSError?
-                var writeError: Error?
-                NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: cloudURL, options: .forReplacing, error: &coordinatorError) { url in
-                    do {
-                        if let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !conflicts.isEmpty {
-                            throw NSError(domain: "TimeTrackerSync", code: 3, userInfo: [NSLocalizedDescriptionKey: "iCloud 存在未解决的版本冲突"])
-                        }
-                        if FileManager.default.fileExists(atPath: url.path) {
-                            let currentHash = Self.hash(try Data(contentsOf: url))
-                            guard currentHash == expectedHash || currentHash == lastWrittenRecordsHash || currentHash == Self.hash(data) else {
-                                throw NSError(domain: "TimeTrackerSync", code: 4, userInfo: [NSLocalizedDescriptionKey: "云端文件与上次读取版本不同"])
-                            }
-                        } else if expectedHash != nil {
-                            throw NSError(domain: "TimeTrackerSync", code: 5, userInfo: [NSLocalizedDescriptionKey: "云端文件意外消失"])
-                        }
-                        try data.write(to: url, options: .atomic)
-                    } catch { writeError = error }
-                }
-                if let error = coordinatorError { throw error }
-                if let error = writeError { throw error }
-                lastWrittenRecordsHash = Self.hash(data)
+                let records = try JSONDecoder().decode([TimeRecord].self, from: data)
+                let accepted = try archive().save(records, loadedMonths: loadedMonths, editedAt: editedAt, replaceAll: replaceAll)
+                let head = try LatestCloudFile.read(cloudURL)
+                lastRecordsHeadDigest = Self.hash(head.data)
+                lastWrittenRecordsHash = lastRecordsHeadDigest
                 try? FileManager.default.removeItem(at: pendingRecordsURL)
-                updateWatermark(folder: .records, fileName: "timeRecords_v20.json")
-                return .success(true)
+                updateWatermark(folder: .records, fileName: "current.json")
+                return .success(accepted)
             } catch { return .failure(error) }
         }
     }
@@ -7695,10 +7811,31 @@ final class CloudFileManager: @unchecked Sendable {
     }
     
     private func isStrictPullFile(folder: SubFolder, fileName: String) -> Bool {
-        return folder == .records && fileName == "timeRecords_v20.json"
+        return folder == .records && fileName == "current.json"
     }
     
+    private func migrateLegacyName(folder: SubFolder, fileName: String) throws {
+        let names = ["efficiency_data.json": "efficiency_data_final_v20.json", "efficiency_settings.json": "efficiency_settings_v20.json"]
+        guard let oldName = names[fileName] else { return }
+        let destination = getCloudDir(folder).appendingPathComponent(fileName)
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            try retireMirror(oldName, as: fileName)
+            return
+        }
+        let source = getCloudDir(folder).appendingPathComponent(oldName)
+        guard FileManager.default.fileExists(atPath: source.path) else { return }
+        let old = try LatestCloudFile.read(source)
+        let backup = getBackupsDir().appendingPathComponent("RecordMigration", isDirectory: true)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        try old.data.write(to: backup.appendingPathComponent("\(fileName)-\(Self.hash(old.data)).backup"), options: .atomic)
+        _ = try LatestCloudFile.write(old.data, to: destination, editedAt: old.modifiedAt)
+        try FileManager.default.removeItem(at: source)
+        try retireMirror(oldName, as: fileName)
+    }
+
     func smartLoad(folder: SubFolder, fileName: String) -> Data? {
+        do { try migrateLegacyName(folder: folder, fileName: fileName) }
+        catch { DebugLogCenter.appendCloud("文件改名等待重试：\(error.localizedDescription)"); return nil }
         let diagnosticEvent = "CloudFileManager.smartLoad \(folder.rawValue)/\(fileName)"
         let diagnosticStart = StartupDiagnostics.shared.begin(diagnosticEvent)
         defer { StartupDiagnostics.shared.end(diagnosticEvent, since: diagnosticStart) }
@@ -7728,36 +7865,27 @@ final class CloudFileManager: @unchecked Sendable {
         let localURL = getLocalMirrorDir(folder).appendingPathComponent(fileName)
         let tombstoneURL = getTombstoneURL(folder: folder, fileName: fileName)
         
-        // 物理修复：在脱离 Task 之前不再访问 self.fm 而是直接使用全局 default
+        let editedAt = Date()
+        // Preserve the originating save time when background I/O is delayed.
         Task.detached(priority: .background) {
             let fm = FileManager.default
             if fm.fileExists(atPath: tombstoneURL.path) {
                 await self.coordinatedDelete(at: tombstoneURL)
             }
             try? data.write(to: localURL, options: .atomic)
-            await self.coordinatedWrite(data: data, to: cloudURL)
+            do {
+                let winner = try LatestCloudFile.write(data, to: cloudURL, editedAt: editedAt)
+                try winner.data.write(to: localURL, options: .atomic)
+            } catch { DebugLogCenter.appendCloud("最新版本保存暂缓：\(fileName)：\(error.localizedDescription)") }
             self.updateWatermark(folder: folder, fileName: fileName)
         }
     }
     
     private func coordinatedRead(from url: URL, forStrictPull: Bool = false) -> Data? {
-        var res: Data?
-        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [.withoutChanges], error: nil) { newURL in
-            let values = try? newURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
-            if values?.ubiquitousItemDownloadingStatus == .current || values?.ubiquitousItemDownloadingStatus == .downloaded {
-                if let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: newURL), !conflicts.isEmpty {
-                    if forStrictPull { res = nil } else {
-                        let winner = conflicts.max(by: { ($0.modificationDate ?? Date.distantPast) < ($1.modificationDate ?? Date.distantPast) }) ?? NSFileVersion.currentVersionOfItem(at: newURL)
-                        res = try? Data(contentsOf: winner?.url ?? newURL)
-                        try? NSFileVersion.removeOtherVersionsOfItem(at: newURL)
-                        conflicts.forEach { $0.isResolved = true }
-                    }
-                } else { res = try? Data(contentsOf: newURL) }
-            } else { res = nil }
-        }
-        return res
+        do { return try LatestCloudFile.read(url).data }
+        catch { DebugLogCenter.appendCloud("最新版本读取暂缓：\(url.lastPathComponent)：\(error.localizedDescription)"); return nil }
     }
-    
+
     // 【核心修复】：标记为 nonisolated 并使用 async 以支持后台 Task 物理写入
     nonisolated private func coordinatedWrite(data: Data, to url: URL) async {
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forReplacing, error: nil) { try? data.write(to: $0, options: .atomic) }
@@ -9106,7 +9234,12 @@ struct DayTimelineColumn: View {
         let hour = finalMinutes / 60
         let minute = finalMinutes % 60
         guard let newStart = cal.date(bySettingHour: hour, minute: minute, second: 0, of: date) else { return }
-        
+        guard newStart <= Date(), record.isOngoing || newStart <= record.endTime,
+              idx == 0 || newStart >= localRecords[idx - 1].startTime else {
+            currentDragTime = nil
+            return
+        }
+
         currentDragTime = newStart
         
         if idx > 0 {
@@ -9143,26 +9276,19 @@ struct DayTimelineColumn: View {
         }
         
         self.ts.performBatchUpdate {
-            if record.isOngoing {
-                let now = Date()
-                if abs(finalTime.timeIntervalSince(now)) < 60 {
-                    self.ts.mergePreviousIntoOngoing()
-                } else {
-                    self.ts.editOngoing(newStart: finalTime, newCategory: record.category)
-                }
-            } else if self.ts.currentRecord != nil || !record.isOngoing {
-                 if idx > 0 {
-                     let prevLocal = localRecords[idx - 1]
-                     if let realPrev = self.ts.records.first(where: { $0.id == prevLocal.id }) {
-                         self.ts.editRecord(original: realPrev, newCategory: prevLocal.category, newStart: prevLocal.startTime, newEnd: finalTime)
-                     }
-                 }
-                if let realCurrent = self.ts.records.first(where: { $0.id == record.id }) {
-                    self.ts.updateStartTime(for: realCurrent, newStartTime: finalTime)
+            // Dragging a shared boundary explicitly updates both sides in one transaction.
+            // Near-now gestures never turn into an implicit merge.
+            if idx > 0 {
+                let prevLocal = localRecords[idx - 1]
+                if let realPrev = self.ts.records.first(where: { $0.id == prevLocal.id }) {
+                    self.ts.editRecord(original: realPrev, newCategory: prevLocal.category, newStart: prevLocal.startTime, newEnd: finalTime)
                 }
             }
+            if let realCurrent = self.ts.records.first(where: { $0.id == record.id }) {
+                self.ts.updateStartTime(for: realCurrent, newStartTime: finalTime)
+            }
         }
-        
+
         draggingRecordID = nil
         currentDragTime = nil
         lastSnappedMinute = nil
@@ -9563,7 +9689,7 @@ struct EditCurrentRecordView: View {
                 VStack(spacing: 8) {
                     GlassInputContainer(title: NSLocalizedString("start_time", comment: "")) {
                         HStack {
-                            DatePicker("", selection: $sDate, displayedComponents: .date).labelsHidden().colorScheme(.dark)
+                            DatePicker("", selection: $sDate, in: ...Date(), displayedComponents: .date).labelsHidden().colorScheme(.dark)
                             DatePicker("", selection: $sTime, displayedComponents: .hourAndMinute).labelsHidden().colorScheme(.dark)
                             Spacer()
                             // 【修复】调用新方法名
@@ -9578,7 +9704,7 @@ struct EditCurrentRecordView: View {
                     QuickActionGrid { minutes in
                         let cur = combineDates(sDate, sTime)
                         if let newDate = Calendar.current.date(byAdding: .minute, value: minutes, to: cur) {
-                            sDate = newDate; sTime = newDate
+                            let bounded = min(newDate, Date()); sDate = bounded; sTime = bounded
                         }
                     }
                 }
@@ -9676,7 +9802,7 @@ struct DataManagementView: View {
                         }
                         if ts.hasUnsyncedRecords {
                             HStack {
-                                Button("重试上传本机记录") { ts.save() }
+                                Button("重试上传本机记录") { ts.retryLatestRecordsIfNeeded() }
                                 Spacer()
                                 Button("放弃待同步副本", role: .destructive) { showDiscardPending = true }
                             }.font(.subheadline)
@@ -9745,13 +9871,19 @@ struct DataManagementView: View {
     }
 
     func exportAllData() {
+        guard let allRecords = try? ts.completeRecordsForExport() else {
+            importAlertMessage = "部分历史月份尚未下载，未导出不完整备份，请稍后重试。"
+            showImportResultAlert = true
+            return
+        }
         let backup = TimerBackupData(
-            records: ts.records,
+            records: allRecords,
             efficiencyData: es.dailyData,
             targetHours: es.targetHours,
             targetEfficiency: es.targetEfficiency,
             appSettings: settingsStore.config,
-            backupDate: Date()
+            backupDate: Date(),
+            weeklyTargets: es.weeklyTargets
         )
         
         if let data = try? JSONEncoder().encode(backup) {
@@ -9786,40 +9918,46 @@ struct DataManagementView: View {
 
     // 【190号核心新增】：物理整箱替换逻辑
     private func performPhysicalRestore(from snapshotURL: URL) {
-        let fm = FileManager.default
-        // 目标：本地镜像根目录 (例如 Documents/李知本时间管理)
-        let localMirrorRoot = CloudFileManager.shared.getLocalMirrorDir(.records).deletingLastPathComponent()
-        
-        DispatchQueue.main.async {
-            do {
-                // 1. 物理清场
-                if fm.fileExists(atPath: localMirrorRoot.path) {
-                    try fm.removeItem(at: localMirrorRoot)
+        do {
+            func read(_ names: [String], folder: String = "记录") throws -> Data? {
+                for name in names {
+                    let url = snapshotURL.appendingPathComponent(folder).appendingPathComponent(name)
+                    if FileManager.default.fileExists(atPath: url.path) { return try Data(contentsOf: url) }
                 }
-                
-                // 2. 整箱拷贝
-                try fm.copyItem(at: snapshotURL, to: localMirrorRoot)
-                
-                // 3. 内存重载：指挥所有组件立即重载硬盘新数据
-                ts.load()
-                es.load()
-                detailedCategoryStore.load()
-                
-                // 4. 反馈
-                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                importAlertMessage = "✅ 还原成功：所有物理文件已整箱替换！"
-                showImportResultAlert = true
-                
-                // 5. 提示云同步系统（本地已变，需要后续推送到云端）
-                NotificationCenter.default.post(name: NSNotification.Name("CloudDataUpdated"), object: nil)
-                
-            } catch {
-                importAlertMessage = "物理还原失败: \(error.localizedDescription)"
-                showImportResultAlert = true
+                return nil
             }
+            let recordsRoot = snapshotURL.appendingPathComponent("记录")
+            let records = try MonthlyRecordArchive.readBackup(root: recordsRoot)
+            let daily = try read(["efficiency_data.json", "efficiency_data_final_v20.json"]).map {
+                try JSONDecoder().decode([String: DailyEfficiency].self, from: $0)
+            } ?? es.dailyData
+            let settings = try read(["efficiency_settings.json", "efficiency_settings_v20.json"]).map {
+                try JSONDecoder().decode(EfficiencyStore.SettingsData.self, from: $0)
+            }
+            let config = try read(["global_settings.json"], folder: "设置").map {
+                try JSONDecoder().decode(AppSettings.self, from: $0)
+            } ?? settingsStore.config
+            var weekly = try read(["weekly_targets.json", "weekly_targets_v20.json"]).map {
+                try JSONDecoder().decode([String: WeeklyTarget].self, from: $0)
+            }
+            let yearly = recordsRoot.appendingPathComponent("weekly_targets", isDirectory: true)
+            if FileManager.default.fileExists(atPath: yearly.path) {
+                weekly = [:]
+                for file in try FileManager.default.contentsOfDirectory(at: yearly, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+                    let entries = try JSONDecoder().decode([String: WeeklyTarget].self, from: Data(contentsOf: file))
+                    weekly?.merge(entries) { _, latest in latest }
+                }
+            }
+            performTimerRestore(TimerBackupData(records: records, efficiencyData: daily,
+                targetHours: settings?.targetHours ?? es.targetHours,
+                targetEfficiency: settings?.targetEfficiency ?? es.targetEfficiency,
+                appSettings: config, backupDate: Date(), weeklyTargets: weekly))
+        } catch {
+            importAlertMessage = "还原失败，未替换当前数据：\(error.localizedDescription)"
+            showImportResultAlert = true
         }
     }
-    
+
     func restoreFromFile(_ url: URL) {
         guard url.startAccessingSecurityScopedResource() else { return }
         defer { url.stopAccessingSecurityScopedResource() }
@@ -9838,7 +9976,8 @@ struct DataManagementView: View {
 
     private func performTimerRestore(_ backup: TimerBackupData) {
         DispatchQueue.main.async {
-            ts.records = backup.records; ts.save()
+            ts.records = MonthlyRecordArchive.normalize(backup.records, now: Date()).valid; ts.replaceAllOnNextSave = true; ts.save()
+            if let weekly = backup.weeklyTargets { es.weeklyTargets = weekly }
             es.importData(data: backup.efficiencyData, tH: backup.targetHours, tE: backup.targetEfficiency)
             settingsStore.config = backup.appSettings
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()

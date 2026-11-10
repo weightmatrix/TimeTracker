@@ -1,67 +1,67 @@
 {
   "images" : [
     {
-      "filename" : "AppIcon_1024 10.png",
+      "filename" : "李知本·时间.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
     },
     {
-      "filename" : "AppIcon_1024.png",
+      "filename" : "李知本·时间 1.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "16x16"
     },
     {
-      "filename" : "AppIcon_1024 1.png",
+      "filename" : "李知本·时间 2.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "16x16"
     },
     {
-      "filename" : "AppIcon_1024 2.png",
+      "filename" : "李知本·时间 3.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "32x32"
     },
     {
-      "filename" : "AppIcon_1024 3.png",
+      "filename" : "李知本·时间 4.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "32x32"
     },
     {
-      "filename" : "AppIcon_1024 5.png",
+      "filename" : "李知本·时间 5.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "128x128"
     },
     {
-      "filename" : "AppIcon_1024 4.png",
+      "filename" : "李知本·时间 6.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "128x128"
     },
     {
-      "filename" : "AppIcon_1024 7.png",
+      "filename" : "李知本·时间 7.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "256x256"
     },
     {
-      "filename" : "AppIcon_1024 6.png",
+      "filename" : "李知本·时间 8.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "256x256"
     },
     {
-      "filename" : "AppIcon_1024 8.png",
+      "filename" : "李知本·时间 9.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "512x512"
     },
     {
-      "filename" : "AppIcon_1024 9.png",
+      "filename" : "李知本·时间 10.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "512x512"
