@@ -21,6 +21,8 @@ struct RecordTimeDiagnosticsView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(TimeSettingsBackground())
         .navigationTitle("记录时间诊断")
         .task { refresh() }
     }

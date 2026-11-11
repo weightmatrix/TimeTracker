@@ -1803,7 +1803,48 @@ struct TimerBackupData: Codable {
 
 
 
+enum TimeSkin {
+    static let key = "appearance.skin"
+    static let ink = Color(red: 0.141, green: 0.353, blue: 0.263)
+    static let paper = Color(red: 0.969, green: 0.973, blue: 0.949)
+    static let pale = Color(red: 0.929, green: 0.949, blue: 0.890)
+    static let border = Color(red: 0.545, green: 0.643, blue: 0.471)
+}
+
+struct TimeSettingsBackground: View {
+    @AppStorage(TimeSkin.key) private var skin = "classic"
+    var body: some View {
+        ZStack {
+            (skin == "spring" ? TimeSkin.paper : Color.black)
+            if skin == "spring" {
+                VStack { Text("❧  ❦  ❧"); Spacer(); Text("❧  ❦  ❧") }
+                    .font(.system(size: 24, design: .serif)).foregroundStyle(TimeSkin.border.opacity(0.5)).padding(16)
+            }
+        }.ignoresSafeArea()
+    }
+}
+
+struct TimeDisplaySettingsView: View {
+    var body: some View {
+        Form { Section("显示设置") { NavigationLink("皮肤") { TimeSkinSettingsView() } } }
+            .formStyle(.grouped).navigationTitle("显示设置")
+    }
+}
+
+struct TimeSkinSettingsView: View {
+    @AppStorage(TimeSkin.key) private var skin = "classic"
+    var body: some View {
+        Form {
+            Section("皮肤") {
+                Picker("皮肤", selection: $skin) { Text("经典").tag("classic"); Text("春天").tag("spring") }
+                Text(skin == "spring" ? "网页同款绿色维多利亚风" : "原有配色与显示样式").font(.caption).foregroundStyle(.secondary)
+            }
+        }.formStyle(.grouped).navigationTitle("皮肤")
+    }
+}
+
 struct TTModalSheetContainer<Content: View>: View {
+    @AppStorage(TimeSkin.key) private var skin = "classic"
     let minWidth: CGFloat
     let minHeight: CGFloat
     let showsDismissButton: Bool
@@ -1839,6 +1880,9 @@ struct TTModalSheetContainer<Content: View>: View {
                     }
                 }
         }
+        .background(TimeSettingsBackground())
+        .tint(skin == "spring" ? TimeSkin.ink : .accentColor)
+        .preferredColorScheme(skin == "spring" ? .light : .dark)
         #if os(macOS)
         .focusEffectDisabled()
         .frame(width: minWidth, height: minHeight)
@@ -1851,11 +1895,12 @@ struct TTModalSheetContainer<Content: View>: View {
 
 struct SettingsView: View {
     @EnvironmentObject var ts: TimeStore
-    @ObservedObject private var cloudSync = CloudSyncManager.shared
     @EnvironmentObject var es: EfficiencyStore
     @EnvironmentObject var settingsStore: GlobalSettingsStore
     @EnvironmentObject var purchaseManager: PurchaseManager
     
+    @AppStorage(TimeSkin.key) private var skin = "classic"
+    @State private var showDisplaySettings = false
     @State private var showPaywall = false
     @State var showFuncSettings = false
     @State var showDataManagement = false
@@ -1866,14 +1911,15 @@ struct SettingsView: View {
     
     var body: some View {
         ZStack {
+            TimeSettingsBackground()
             VStack(spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(I18n.t(.set_center)).font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(.white)
+                        Text(I18n.t(.set_center)).font(.system(size: 28, weight: .black, design: .rounded)).foregroundColor(skin == "spring" ? TimeSkin.ink : .white)
                         Text(I18n.t(.set_subtitle)).font(.subheadline).foregroundColor(.gray)
                     }
                     Spacer()
-                    Image(systemName: "gearshape.2.fill").font(.system(size: 40)).foregroundStyle(LinearGradient(colors: [.white.opacity(0.8), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)).opacity(0.8)
+                    Image(systemName: "gearshape.2.fill").font(.system(size: 40)).foregroundStyle(LinearGradient(colors: skin == "spring" ? [TimeSkin.ink.opacity(0.8), TimeSkin.border] : [.white.opacity(0.8), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)).opacity(0.8)
                 }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 30)
                 
                 VStack(spacing: 20) {
@@ -1906,14 +1952,7 @@ struct SettingsView: View {
                         showDataManagement = true
                     }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("iCloud 记录检查").font(.headline).foregroundColor(.white)
-                        Text(cloudSync.recordsCheckMessage).font(.caption).foregroundColor(.gray)
-                        Text(cloudSync.recordsUploadMessage).font(.caption).foregroundColor(.gray)
-                        Button("立即检查") { cloudSync.checkRecordsNow { ts.load() } }
-                            .font(.subheadline).foregroundColor(.cyan)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                        .background(Color.white.opacity(0.08)).cornerRadius(12)
+                    SettingsGlassCard(title: "显示设置", subtitle: "皮肤与界面外观", icon: "paintpalette.fill", colors: [.green, .mint]) { showDisplaySettings = true }
 
                     // 【101号新增】：仅在 Debug 模式下出现的项目
                     #if DEBUG
@@ -1940,14 +1979,18 @@ struct SettingsView: View {
                     }
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor((skin == "spring" ? TimeSkin.ink : .white).opacity(0.6))
                     .padding(10)
                     .background(Capsule().fill(Color.white.opacity(0.05)))
                 }
                 .padding(.bottom, 8)
                 
-                Text("TimeTracker Pro v1.0").font(.caption2).foregroundColor(.white.opacity(0.2)).padding(.bottom, 20)
+                Text("TimeTracker Pro v1.0").font(.caption2).foregroundColor((skin == "spring" ? TimeSkin.ink : .white).opacity(0.2)).padding(.bottom, 20)
             }
+        }
+        .preferredColorScheme(skin == "spring" ? .light : .dark)
+        .sheet(isPresented: $showDisplaySettings) {
+            TTModalSheetContainer { TimeDisplaySettingsView() }
         }
         .sheet(isPresented: $showFuncSettings) {
             TTModalSheetContainer(minWidth: 860, minHeight: 720) {
@@ -2004,6 +2047,9 @@ struct DebugSettingsView: View {
                     NavigationLink(destination: SandboxBrowserView(url: URL(fileURLWithPath: NSHomeDirectory()))) { Label("沙盒文件浏览器", systemImage: "folder.fill.badge.gear") }
                 }
             }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(TimeSettingsBackground())
             .navigationTitle("Debug 调整")
             .ttNavigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
@@ -2133,6 +2179,8 @@ struct SandboxBrowserView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(TimeSettingsBackground())
         .navigationTitle(url.lastPathComponent)
         .ttNavigationBarTitleDisplayMode(.inline)
         .onAppear { loadContents() }
@@ -2225,6 +2273,8 @@ struct SandboxFileDetailView: View {
             .padding()
             .background(Color(UIColor.secondarySystemBackground))
         }
+        .scrollContentBackground(.hidden)
+        .background(TimeSettingsBackground())
         .navigationTitle(url.lastPathComponent)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -2609,6 +2659,15 @@ struct TimeTrackerApp: App {
                 else if newPhase == .background || newPhase == .inactive { performAutoBackup() }
             }
         }
+        #if os(macOS)
+        Settings {
+            TTModalSheetContainer(showsDismissButton: false) { SettingsView() }
+                .environmentObject(timeStore).environmentObject(efficiencyStore)
+                .environmentObject(taskStore).environmentObject(calendarStore)
+                .environmentObject(settingsStore).environmentObject(purchaseManager)
+                .environmentObject(detailedCategoryStore)
+        }
+        #endif
     }
     
     private func performAutoBackup() {
@@ -6454,10 +6513,15 @@ struct MainHeaderView: View {
 
 // MARK: - 拆分出的子视图 (背景)
 struct MainBackgroundView: View {
+    @AppStorage(TimeSkin.key) private var skin = "classic"
     let themeColor: Color
     
     var body: some View {
         ZStack {
+            if skin == "spring" {
+                LinearGradient(colors: [TimeSkin.ink, Color(red: 0.07, green: 0.16, blue: 0.12)], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+                VStack { Text("❧  ❦  ❧"); Spacer(); Text("❧  ❦  ❧") }.font(.system(size: 30, design: .serif)).foregroundStyle(TimeSkin.border.opacity(0.3)).padding(18)
+            } else {
             Color.black.ignoresSafeArea()
             LinearGradient(
                 colors: [themeColor.opacity(0.4), themeColor.opacity(0.15), Color.black.opacity(0.8), Color.black],
@@ -6470,6 +6534,7 @@ struct MainBackgroundView: View {
                 startRadius: 0,
                 endRadius: 500
             ).ignoresSafeArea()
+            }
         }
     }
 }
@@ -10060,13 +10125,15 @@ private func formatTimeAgo(_ date: Date, currentTime: Date) -> String {
 
 struct FunctionSettingsView: View {
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var ts: TimeStore
+    @ObservedObject private var cloudSync = CloudSyncManager.shared
+    @AppStorage(TimeSkin.key) private var skin = "classic"
     @EnvironmentObject var store: GlobalSettingsStore
     
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black.ignoresSafeArea()
-                Color.blue.opacity(0.1).ignoresSafeArea().blur(radius: 60)
+                TimeSettingsBackground()
                 
                 List {
                     Section {
@@ -10094,7 +10161,12 @@ struct FunctionSettingsView: View {
                             Label("番茄时间", systemImage: "timer.square")
                         }
                     }
-                    .listRowBackground(Color(white: 0.1))
+                    .listRowBackground(skin == "spring" ? TimeSkin.pale : Color(white: 0.1))
+                    Section("iCloud 记录检查") {
+                        Text(cloudSync.recordsCheckMessage).font(.caption).foregroundStyle(.secondary)
+                        Text(cloudSync.recordsUploadMessage).font(.caption).foregroundStyle(.secondary)
+                        Button("立即检查") { cloudSync.checkRecordsNow { ts.load() } }
+                    }.listRowBackground(skin == "spring" ? TimeSkin.pale : Color(white: 0.1))
                 }
                 .scrollContentBackground(.hidden)
             }
@@ -10177,6 +10249,9 @@ struct PomodoroSettingsView: View {
                 Toggle("内部切分提醒", isOn: $store.config.enableSplitSound).tint(.gray)
             }
         }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(TimeSettingsBackground())
         .navigationTitle("番茄设置")
         .ttNavigationBarTitleDisplayMode(.inline)
     }
@@ -10185,6 +10260,7 @@ struct PomodoroSettingsView: View {
 // MARK: - 底部导航配置视图 - v7 - 适配原生 macOS 大屏判定
 
 struct TabConfigView: View {
+    @AppStorage(TimeSkin.key) private var skin = "classic"
     @AppStorage("settings_tab_config_v251216") var tabConfigJSON: String = ""
     @AppStorage("settings_maxVisibleTabs_v25") var maxVisibleTabs: Int = 4
     
@@ -10201,18 +10277,18 @@ struct TabConfigView: View {
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            TimeSettingsBackground()
             VStack(alignment: .leading, spacing: 0) {
                 if !isPadOrMac {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("分页显示设置").font(.headline).foregroundColor(.white)
+                        Text("分页显示设置").font(.headline).foregroundColor(skin == "spring" ? TimeSkin.ink : .white)
                         HStack {
                             Text("每页图标数").foregroundColor(.gray)
                             Spacer()
                             Stepper("", value: $maxVisibleTabs, in: 3...max(3, totalVisibleCount)).labelsHidden()
                             Text("\(maxVisibleTabs)").font(.system(.title3, design: .monospaced)).fontWeight(.bold).foregroundColor(.blue).frame(width: 40).background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.1)))
                         }
-                        .padding().background(RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.1)))
+                        .padding().background(RoundedRectangle(cornerRadius: 12).fill((skin == "spring" ? TimeSkin.pale : Color(white: 0.1))))
                     }.padding(20); Divider().background(Color.white.opacity(0.1))
                 }
                 
@@ -10222,20 +10298,20 @@ struct TabConfigView: View {
                             if let meta = CustomFloatingTabBar.allTabs[item.id] {
                                 HStack {
                                     Image(systemName: meta.icon).foregroundColor(meta.activeColor).frame(width: 24)
-                                    Text(meta.title).foregroundColor(.white)
+                                    Text(meta.title).foregroundColor(skin == "spring" ? TimeSkin.ink : .white)
                                     Spacer()
                                     Toggle("", isOn: Binding(get: { tabItems[index].isVisible }, set: { tabItems[index].isVisible = $0 })).labelsHidden().tint(meta.activeColor)
                                 }.padding(.vertical, 8)
                             }
                             if !isPadOrMac && shouldShowSplitter(after: index) { PageSplitterView(pageIndex: getPageIndex(after: index)) }
-                        }.listRowBackground(Color(white: 0.1)).listRowSeparator(.hidden)
+                        }.listRowBackground((skin == "spring" ? TimeSkin.pale : Color(white: 0.1))).listRowSeparator(.hidden)
                     }.onMove(perform: moveTabs)
                     
                     HStack {
                         Image(systemName: "gearshape.fill").foregroundColor(.gray).frame(width: 24)
                         Text(I18n.t(.tab_settings)).foregroundColor(.gray)
                         Spacer(); Image(systemName: "lock.fill").font(.caption2).foregroundColor(.gray.opacity(0.5))
-                    }.padding(.vertical, 8).listRowBackground(Color(white: 0.1)).listRowSeparator(.hidden)
+                    }.padding(.vertical, 8).listRowBackground((skin == "spring" ? TimeSkin.pale : Color(white: 0.1))).listRowSeparator(.hidden)
                 }.listStyle(.plain).scrollContentBackground(.hidden)
             }
         }
@@ -10271,6 +10347,7 @@ struct TimerStyleSelectionView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settingsStore: GlobalSettingsStore
     @EnvironmentObject var purchaseManager: PurchaseManager // 【新增】
+    @AppStorage(TimeSkin.key) private var skin = "classic"
     @AppStorage("settings_timerStyle_v25") var timerStyle = 0
     
     #if os(iOS)
@@ -10297,7 +10374,7 @@ struct TimerStyleSelectionView: View {
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            TimeSettingsBackground()
             VStack(spacing: 0) {
                 if timerStyle == 9 {
                     VStack(spacing: 10) {
@@ -10325,7 +10402,7 @@ struct TimerStyleSelectionView: View {
                         .buttonStyle(.plain)
                         #endif
                         Text("照片将自动裁剪为圆形并添加呼吸效果").font(.caption).foregroundColor(.gray)
-                    }.padding(20).background(Color(white: 0.1))
+                    }.padding(20).background((skin == "spring" ? TimeSkin.pale : Color(white: 0.1)))
                 }
                 
                 ScrollView {
@@ -10343,13 +10420,13 @@ struct TimerStyleSelectionView: View {
                                         Circle().fill(option.color.opacity(0.15)).frame(width: 60, height: 60)
                                         Image(systemName: option.icon).font(.title).foregroundColor(option.color)
                                         if !settingsStore.isProEffective && option.id != 0 {
-                                            Image(systemName: "lock.fill").font(.caption2).foregroundColor(.white).padding(4).background(Circle().fill(Color.orange)).offset(x: 20, y: -20)
+                                            Image(systemName: "lock.fill").font(.caption2).foregroundColor(skin == "spring" ? TimeSkin.ink : .white).padding(4).background(Circle().fill(Color.orange)).offset(x: 20, y: -20)
                                         }
                                     }
-                                    Text(option.name).font(.subheadline).fontWeight(.medium).foregroundColor(timerStyle == option.id ? .white : .gray)
+                                    Text(option.name).font(.subheadline).fontWeight(.medium).foregroundColor(timerStyle == option.id ? (skin == "spring" ? TimeSkin.ink : .white) : .gray)
                                 }
                                 .frame(maxWidth: .infinity).padding(.vertical, 20)
-                                .background { RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.1)).overlay(RoundedRectangle(cornerRadius: 16).stroke(timerStyle == option.id ? option.color : Color.clear, lineWidth: 2)) }
+                                .background { RoundedRectangle(cornerRadius: 16).fill((skin == "spring" ? TimeSkin.pale : Color(white: 0.1))).overlay(RoundedRectangle(cornerRadius: 16).stroke(timerStyle == option.id ? option.color : Color.clear, lineWidth: 2)) }
                             }.buttonStyle(BouncyScaleButtonStyle())
                         }
                     }.padding(20)
@@ -10388,31 +10465,34 @@ extension TimerStyleSelectionView {
 
 // MARK: - 设置页玻璃卡片 - V1 (修复泛白)
 struct SettingsGlassCard: View {
+    @AppStorage(TimeSkin.key) private var skin = "classic"
     let title: String; let subtitle: String; let icon: String; let colors: [Color]; let action: () -> Void
+    private var palette: [Color] { skin == "spring" ? [TimeSkin.ink, TimeSkin.border] : colors }
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
                 ZStack {
-                    Circle().fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 50, height: 50).opacity(0.2)
-                    Image(systemName: icon).font(.system(size: 22)).foregroundStyle(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Circle().fill(LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)).frame(width: 50, height: 50).opacity(0.2)
+                    Image(systemName: icon).font(.system(size: 22)).foregroundStyle(LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing))
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline).fontWeight(.bold).foregroundColor(.white)
+                    Text(title).font(.headline).fontWeight(.bold).foregroundColor(skin == "spring" ? TimeSkin.ink : .white)
                     Text(subtitle).font(.caption).foregroundColor(.gray)
                 }
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.3))
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundColor((skin == "spring" ? TimeSkin.ink : .white).opacity(0.3))
             }
             .padding(16)
             .background {
                 ZStack {
                     // 修改：使用黑色半透明背景
-                    RoundedRectangle(cornerRadius: 20).fill(Color.black.opacity(0.3))
-                    RoundedRectangle(cornerRadius: 20).fill(LinearGradient(colors: [colors.first!.opacity(0.1), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    RoundedRectangle(cornerRadius: 20).fill(skin == "spring" ? Color.white : Color.black.opacity(0.3))
+                    RoundedRectangle(cornerRadius: 20).fill(LinearGradient(colors: [palette.first!.opacity(0.1), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
                     RoundedRectangle(cornerRadius: 20).strokeBorder(LinearGradient(colors: [.white.opacity(0.15), .white.opacity(0.02)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
                 }
             }
-            .shadow(color: colors.first!.opacity(0.2), radius: 10, x: 0, y: 5)
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(skin == "spring" ? TimeSkin.border : Color.clear, lineWidth: 1))
+            .shadow(color: palette.first!.opacity(0.2), radius: 10, x: 0, y: 5)
         }
         .buttonStyle(BouncyScaleButtonStyle())
     }
