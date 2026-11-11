@@ -57,6 +57,13 @@ import Foundation
         expectFailure { _ = try RecordMutationEngine.add(records: [current],
             draft: TimeRecord(category: "生活", startTime: half, endTime: now.addingTimeInterval(60)), now: now, calendar: calendar) }
 
+        // Historical defects outside the edited interval must not block an unrelated edit.
+        let old1 = TimeRecord(category: "工作", startTime: at("2026-11-09T08:00:00+08:00"), endTime: at("2026-11-09T09:30:00+08:00"))
+        let old2 = TimeRecord(category: "生活", startTime: at("2026-11-09T09:00:00+08:00"), endTime: at("2026-11-09T10:00:00+08:00"))
+        let unrelated = try RecordMutationEngine.add(records: [old1, old2, current],
+            draft: TimeRecord(category: "生活", startTime: half, endTime: eleven), now: now, calendar: calendar)
+        precondition(unrelated.contains(old1) && unrelated.contains(old2))
+
         let base = now.addingTimeInterval(-300 * 60)
         let categories = ["工作", "生活", "刚需"]
         let initial = (0..<5).map { index in

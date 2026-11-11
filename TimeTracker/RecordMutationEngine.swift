@@ -68,8 +68,13 @@ nonisolated enum RecordMutationEngine {
         var a = draft
         var chain = records.sorted { $0.startTime < $1.startTime }
         let existingGaps = Set(zip(chain, chain.dropFirst()).compactMap { pair -> String? in
-            pair.0.endTime < pair.1.startTime ? "\(pair.0.endTime.timeIntervalSinceReferenceDate)|\(pair.1.startTime.timeIntervalSinceReferenceDate)" : nil
+            pair.0.endTime < pair.1.startTime ? gapKey(pair.0, pair.1) : nil
         })
+        let existingOverlappingBoundaries = Set(zip(chain, chain.dropFirst()).compactMap { pair -> String? in
+            pair.0.endTime > pair.1.startTime ? boundaryKey(pair.0, pair.1) : nil
+        })
+        let existingOverlaps = Set(RecordIntegrity.issues(records, now: now, checkOverlaps: true)
+            .filter { $0.code == "overlap" }.map(\.signature))
         let endOfA = a.isOngoing ? Date.distantFuture : a.endTime
 
         // 2: remove records fully covered by A.
@@ -159,13 +164,23 @@ nonisolated enum RecordMutationEngine {
             let ongoing = result.remove(at: ongoingIndex)
             result.append(ongoing)
         }
-        guard RecordIntegrity.issues(result, now: now, checkOverlaps: true).isEmpty else { throw MutationError.invalidChain }
+        let resultIssues = RecordIntegrity.issues(result, now: now, checkOverlaps: true)
+        guard resultIssues.allSatisfy({ $0.code == "overlap" && existingOverlaps.contains($0.signature) }) else {
+            throw MutationError.invalidChain
+        }
         for pair in zip(result, result.dropFirst()) {
             if pair.0.endTime == pair.1.startTime { continue }
-            let key = "\(pair.0.endTime.timeIntervalSinceReferenceDate)|\(pair.1.startTime.timeIntervalSinceReferenceDate)"
-            guard pair.0.endTime < pair.1.startTime, existingGaps.contains(key) else { throw MutationError.invalidChain }
+            if pair.0.endTime < pair.1.startTime, existingGaps.contains(gapKey(pair.0, pair.1)) { continue }
+            guard pair.0.endTime > pair.1.startTime,
+                  existingOverlappingBoundaries.contains(boundaryKey(pair.0, pair.1)) else { throw MutationError.invalidChain }
         }
         return result
+    }
+    private static func boundaryKey(_ left: TimeRecord, _ right: TimeRecord) -> String {
+        "\(left.id)|\(left.endTime.timeIntervalSinceReferenceDate)|\(right.id)|\(right.startTime.timeIntervalSinceReferenceDate)"
+    }
+    private static func gapKey(_ left: TimeRecord, _ right: TimeRecord) -> String {
+        "\(left.endTime.timeIntervalSinceReferenceDate)|\(right.startTime.timeIntervalSinceReferenceDate)"
     }
     /// Manual merge affects exactly the two records selected by the user, never a third neighbour or a gap.
     static func merge(records: [TimeRecord], targetID: UUID, neighbourID: UUID, category: String, now: Date,
