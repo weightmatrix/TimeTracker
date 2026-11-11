@@ -2648,16 +2648,15 @@ func formatDuration(_ s: TimeInterval, _ sec: Bool = false) -> String {
     return sec ? String(format: "%02d:%02d:%02d", h, m, sc) : (h>0 ? "\(h)h \(m)m" : "\(m)m")
 }
 
-// MARK: - 全局日期时间合并工具 - v2 - 移除脱水逻辑，完整保留秒数精度
+// MARK: - 手工输入按分钟生成时间；记录处理中的已有边界不再取整
 
 func combineDates(_ d: Date, _ t: Date) -> Date {
     let c = Calendar.current
-    // 【32号修正】：不再强行设 second 为 0，完整保留 t 对象的时、分、秒
-    let comps = c.dateComponents([.hour, .minute, .second], from: t)
+    let comps = c.dateComponents([.hour, .minute], from: t)
     
     return c.date(bySettingHour: comps.hour ?? 0,
                   minute: comps.minute ?? 0,
-                  second: comps.second ?? 0,
+                  second: 0,
                   of: d) ?? d
 }
 
@@ -3573,7 +3572,7 @@ extension TimeStore {
 
 extension TimeStore {
 
-    /// Ordinary switches never run overlap repair, merging, absorption, or gap filling.
+    /// One minute junction closes the old action and opens the new action atomically.
     func start(category: String, subCategory: String? = nil, at clickTime: Date = Date()) {
         let now = Date()
         guard clickTime.timeIntervalSinceReferenceDate.isFinite, clickTime <= now else {
@@ -3583,6 +3582,7 @@ extension TimeStore {
         }
         lock.lock(); defer { lock.unlock() }
         if isSyncingFromCloud || isInitialLoading { return }
+        if currentRecord?.category == category { return }
         guard prepareForRecordEdit(from: currentRecord?.startTime ?? clickTime, through: clickTime) else { return }
         do {
             let before = records
@@ -3614,11 +3614,14 @@ extension TimeStore {
     }
 
     func editRecord(original: TimeRecord, newCategory: String, newStart: Date, newEnd: Date) {
+        let start = Calendar.current.dateInterval(of: .minute, for: newStart)?.start ?? newStart
+        let end = Calendar.current.dateInterval(of: .minute, for: newEnd)?.start ?? newEnd
         let draft = TimeRecord(id: original.id, category: newCategory,
-            subCategory: newCategory == original.category ? original.subCategory : nil, startTime: newStart, endTime: newEnd)
+            subCategory: newCategory == original.category ? original.subCategory : nil,
+            startTime: start, endTime: end)
         let issues = RecordIntegrity.timeIssues(draft, now: Date())
         guard issues.isEmpty else { rejectRecordMutation("记录时间异常，未修改。", phase: "edit.request", context: [draft], issues: issues); return }
-        guard prepareForRecordEdit(from: min(original.startTime, newStart), through: max(original.isOngoing ? Date() : original.endTime, draft.isOngoing ? Date() : newEnd)) else { return }
+        guard prepareForRecordEdit(from: min(original.startTime, start), through: max(original.isOngoing ? Date() : original.endTime, draft.isOngoing ? Date() : end)) else { return }
         lock.lock(); defer { lock.unlock() }
         performBatchUpdate {
             do { self.records = try RecordMutationEngine.replace(records: records, id: original.id, with: draft, now: Date()) }
@@ -3627,15 +3630,17 @@ extension TimeStore {
     }
 
     func editOngoing(newStart: Date, newCategory: String) {
-        let proposed = TimeRecord(id: currentRecord?.id ?? UUID(), category: newCategory, startTime: newStart, endTime: .distantFuture)
+        let start = Calendar.current.dateInterval(of: .minute, for: newStart)?.start ?? newStart
+        let proposed = TimeRecord(id: currentRecord?.id ?? UUID(), category: newCategory, startTime: start, endTime: .distantFuture)
         let issues = RecordIntegrity.timeIssues(proposed, now: Date())
         guard issues.isEmpty else { rejectRecordMutation("开始时间超过当前时间，未修改。", phase: "edit-current.request", context: [proposed], issues: issues); return }
-        guard prepareForRecordEdit(from: min(currentRecord?.startTime ?? newStart, newStart), through: Date()) else { return }
+        guard prepareForRecordEdit(from: min(currentRecord?.startTime ?? start, start), through: Date()) else { return }
         lock.lock(); defer { lock.unlock() }
         performBatchUpdate {
             guard let current = currentRecord else { rejectRecordMutation("没有可修改的当前任务。", phase: "edit-current.missing", context: []); return }
             let draft = TimeRecord(id: current.id, category: newCategory,
-                subCategory: newCategory == current.category ? current.subCategory : nil, startTime: newStart, endTime: .distantFuture)
+                subCategory: newCategory == current.category ? current.subCategory : nil,
+                startTime: start, endTime: .distantFuture)
             do { self.records = try RecordMutationEngine.replace(records: records, id: current.id, with: draft, now: Date()) }
             catch { rejectRecordMutation(error.localizedDescription, phase: "edit-current.rejected", context: [draft]) }
         }
@@ -3941,11 +3946,13 @@ extension TimeStore {
     
     /// 【修复点】：物理补全 addRecord，适配补录页面调用
     func addRecord(category: String, startTime: Date, endTime: Date) {
-        let draft = TimeRecord(category: category, startTime: startTime, endTime: endTime)
+        let start = Calendar.current.dateInterval(of: .minute, for: startTime)?.start ?? startTime
+        let end = Calendar.current.dateInterval(of: .minute, for: endTime)?.start ?? endTime
+        let draft = TimeRecord(category: category, startTime: start, endTime: end)
         let issues = RecordIntegrity.timeIssues(draft, now: Date())
         guard issues.isEmpty, !draft.isOngoing else { rejectRecordMutation("记录时间异常，未新增。", phase: "add.request", context: [draft], issues: issues); return }
         if category == "空" { return }
-        guard prepareForRecordEdit(from: startTime, through: endTime) else { return }
+        guard prepareForRecordEdit(from: start, through: end) else { return }
         lock.lock(); defer { lock.unlock() }
         performBatchUpdate {
             do { self.records = try RecordMutationEngine.add(records: records, draft: draft, now: Date()) }
@@ -4396,8 +4403,7 @@ struct EditRecordView: View, Identifiable {
                         return
                     }
                     
-                    let finalEnd = min(fe, Date())
-                    ts.editRecord(original: record, newCategory: cat, newStart: fs, newEnd: finalEnd)
+                    ts.editRecord(original: record, newCategory: cat, newStart: fs, newEnd: fe)
                     dismiss()
                 }.padding(.bottom, 10)
             }
@@ -9569,8 +9575,7 @@ struct AddRecordView: View {
                         return
                     }
                     
-                    let finalEnd = min(fe, Date())
-                    ts.addRecord(category: cat, startTime: fs, endTime: finalEnd)
+                    ts.addRecord(category: cat, startTime: fs, endTime: fe)
                     dismiss()
                 }.padding(.bottom, 10)
             }

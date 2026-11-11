@@ -52,7 +52,8 @@ final class TransactionFixture {
   }
   store.start(category: "生活", at: next.startTime)
   precondition(store.snapshots.count == 1, "One switch published intermediate snapshots")
-  precondition(store.snapshots[0].count == 1 && store.snapshots[0][0].category == "生活" && store.snapshots[0][0].startTime == next.startTime)
+  let firstJunction = Calendar.current.dateInterval(of: .minute, for: next.startTime)!.start
+  precondition(store.snapshots[0].count == 1 && store.snapshots[0][0].category == "生活" && store.snapshots[0][0].startTime == firstJunction)
   store.performBatchUpdate { store.sortAndSave() }
   precondition(store.snapshots.count == 1, "No-op action saved an extra transaction")
   let older = TimeRecord(category: "工作", startTime: now.addingTimeInterval(-86400 * 100), endTime: now.addingTimeInterval(-86400 * 100 + 3600))
@@ -77,7 +78,7 @@ final class TransactionFixture {
   let boundaryOld = TimeRecord(category: "生活", startTime: now.addingTimeInterval(-7200), endTime: now.addingTimeInterval(-3600))
   let boundaryCurrent = TimeRecord(category: "工作", startTime: boundaryOld.endTime, endTime: .distantFuture)
   store.records = [boundaryOld, boundaryCurrent]
-  let changedBoundary = now.addingTimeInterval(-1800)
+  let changedBoundary = Calendar.current.dateInterval(of: .minute, for: now.addingTimeInterval(-1800))!.start
   let beforePair = store.snapshots.count
   store.performBatchUpdate {
    let changedOld = TimeRecord(id: boundaryOld.id, category: boundaryOld.category, startTime: boundaryOld.startTime, endTime: changedBoundary)
@@ -87,7 +88,8 @@ final class TransactionFixture {
    store.records = try! RecordMutationEngine.replace(records: store.records, id: boundaryCurrent.id, with: changedCurrent, now: now)
   }
   precondition(store.snapshots.count == beforePair + 1)
-  precondition(store.records.first(where: { $0.id == boundaryOld.id })?.endTime == changedBoundary)
+  precondition(store.records.contains(where: { $0.endTime == changedBoundary && $0.category == "生活" }))
+  precondition(store.records.contains(where: { $0.startTime == changedBoundary && $0.category == "工作" && $0.isOngoing }))
   print("PASS: explicit paired-boundary edits validate and publish atomically without exposing intermediate overlap")
   let savedBeforeInvalid = store.snapshots.count
   let stateBeforeInvalid = store.records

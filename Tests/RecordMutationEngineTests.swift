@@ -8,19 +8,17 @@ struct RecordMutationEngineTests {
         let previous = TimeRecord(category: "生活", startTime: click.addingTimeInterval(-7200), endTime: click.addingTimeInterval(-3600))
         let current = TimeRecord(category: "工作", subCategory: "物理", startTime: click.addingTimeInterval(-3600), endTime: .distantFuture)
         let switched = try RecordMutationEngine.switchAction(records: [previous, current], category: "刚需", subCategory: nil, at: click, now: now)
+        let junction = Calendar.current.dateInterval(of: .minute, for: click)!.start
         precondition(switched.records.contains(previous), "Switch changed unrelated completed history")
-        precondition(switched.ended?.endTime == click && switched.started?.startTime == click)
+        precondition(switched.ended?.endTime == junction && switched.started?.startTime == junction)
         precondition(switched.ended?.startTime == current.startTime && switched.ended?.subCategory == "物理")
         precondition(switched.records.filter(\.isOngoing).count == 1)
-        let noOp = try RecordMutationEngine.switchAction(records: [previous, current], category: "工作", subCategory: "物理", at: click, now: now)
+        let noOp = try RecordMutationEngine.switchAction(records: [previous, current], category: "工作", subCategory: "另一子类", at: click, now: now)
         precondition(noOp.records == [previous, current])
         let future = TimeRecord(category: "工作", startTime: now.addingTimeInterval(86400 * 730), endTime: .distantFuture)
-        let repaired = try RecordMutationEngine.switchAction(records: [previous, future], category: "工作", subCategory: nil, at: click, now: now)
-        precondition(repaired.rejected.contains(future) && repaired.ended == nil)
-        precondition(repaired.records.count == 2 && repaired.started?.startTime == click)
+        expectFailure { _ = try RecordMutationEngine.switchAction(records: [previous, future], category: "工作", subCategory: nil, at: click, now: now) }
         let duplicate = TimeRecord(category: "生活", startTime: current.startTime.addingTimeInterval(60), endTime: .distantFuture)
-        let cleaned = try RecordMutationEngine.switchAction(records: [previous, current, duplicate], category: "刚需", subCategory: nil, at: click, now: now)
-        precondition(cleaned.rejected.contains(current) && cleaned.ended?.id == duplicate.id)
+        expectFailure { _ = try RecordMutationEngine.switchAction(records: [previous, current, duplicate], category: "刚需", subCategory: nil, at: click, now: now) }
         expectFailure { _ = try RecordMutationEngine.switchAction(records: [current], category: "生活", subCategory: nil, at: current.startTime.addingTimeInterval(-1), now: now) }
         expectFailure { _ = try RecordMutationEngine.switchAction(records: [current], category: "生活", subCategory: nil, at: now.addingTimeInterval(1), now: now) }
         let futureDraft = TimeRecord(id: current.id, category: "工作", startTime: future.startTime, endTime: .distantFuture)
@@ -59,10 +57,9 @@ struct RecordMutationEngineTests {
             "Future end time must still reject a record edit")
         precondition(RecordIntegrity.regressions(before: [previous, overlap], after: [previous, overlap, current], now: now).isEmpty)
         let overlappingCurrent = TimeRecord(category: "工作", startTime: previous.startTime, endTime: .distantFuture)
-        let isolated = try RecordMutationEngine.switchAction(records: [previous, overlappingCurrent], category: "生活", subCategory: nil, at: click, now: now)
-        precondition(isolated.records.contains(previous) && isolated.isolatedCurrent?.id == overlappingCurrent.id && isolated.ended == nil)
-        let stopped = try RecordMutationEngine.switchAction(records: [previous, current], category: "空", subCategory: nil, at: click, now: now)
-        precondition(stopped.started == nil && !stopped.records.contains(where: \.isOngoing))
+        let overlaid = try RecordMutationEngine.switchAction(records: [previous, overlappingCurrent], category: "刚需", subCategory: nil, at: click, now: now)
+        precondition(!overlaid.records.contains(previous) && overlaid.ended != nil)
+        expectFailure { _ = try RecordMutationEngine.switchAction(records: [previous, current], category: "空", subCategory: nil, at: click, now: now) }
         let third = TimeRecord(category: "生活", startTime: parse("2026-01-01T12:00:00+08:00"), endTime: parse("2026-01-01T13:00:00+08:00"))
         let left = TimeRecord(category: "生活", startTime: third.endTime, endTime: parse("2026-01-01T14:00:00+08:00"))
         let right = TimeRecord(category: "工作", startTime: left.endTime, endTime: parse("2026-01-01T15:00:00+08:00"))
