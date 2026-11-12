@@ -3337,6 +3337,10 @@ class TimeStore: ObservableObject {
     private var externalActionTimer: Timer?
     private var externalActionObserver: NSObjectProtocol?
     private var liveActivityUpdateTask: Task<Void, Never>?
+    private lazy var transitionOutbox: TransitionOutbox? = {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return try? TransitionOutbox(url: support.appendingPathComponent("TimeTracker/Push/outbox.json"))
+    }()
     
     // 【325号扩展】：增加 listL 用于存储缓存表快照
     struct AlgorithmDebugData: Identifiable, Equatable {
@@ -3657,6 +3661,16 @@ extension TimeStore {
                 excluded.insert(isolated.id)
             }
             let committed = performBatchUpdate(excludingUndoIDs: excluded) { self.records = result.records }
+            if committed, let started = result.started {
+                do {
+                    guard let transitionOutbox else { throw TransitionOutbox.OutboxError.invalidTransition }
+                    try transitionOutbox.enqueue(previousRecordID: result.ended?.id,
+                        newRecordID: started.id, category: started.category,
+                        startedAt: started.startTime, committedAt: Date())
+                } catch {
+                    recordEditErrorMessage = "记录已保存，但实时通知事件未能排队：\(error.localizedDescription)"
+                }
+            }
             if committed && UserDefaults.standard.bool(forKey: "record_transition_trace_enabled"), result.started != nil || result.ended != nil {
                 RecordTimeDiagnostics.shared.capture([result.ended, result.started].compactMap { $0 }, phase: "switch.applied",
                     note: "旧任务终点与新任务起点使用同一个点击时间；只切割旧任务本身。", allowNormal: true)

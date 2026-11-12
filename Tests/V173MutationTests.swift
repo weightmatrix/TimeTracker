@@ -45,6 +45,13 @@ import Foundation
             subCategory: "different", at: eleven, now: now, calendar: calendar)
         precondition(noop.started == nil && noop.records == [current])
 
+        let rapidFirst = try RecordMutationEngine.switchAction(records: [current], category: "生活",
+            subCategory: nil, at: at("2026-11-11T11:30:05+08:00"), now: now, calendar: calendar)
+        let rapidSecond = try RecordMutationEngine.switchAction(records: rapidFirst.records, category: "刚需",
+            subCategory: nil, at: at("2026-11-11T11:30:55+08:00"), now: now, calendar: calendar)
+        precondition(rapidFirst.started?.id != rapidSecond.started?.id)
+        precondition(rapidSecond.records.last?.category == "刚需" && rapidSecond.records.last?.isOngoing == true)
+
         let yesterday = at("2026-11-10T23:30:00+08:00")
         let crossing = TimeRecord(category: "工作", startTime: yesterday, endTime: .distantFuture)
         let crossResult = try RecordMutationEngine.insert(records: [], draft: crossing, now: now, calendar: calendar)
