@@ -3337,10 +3337,10 @@ class TimeStore: ObservableObject {
     private var externalActionTimer: Timer?
     private var externalActionObserver: NSObjectProtocol?
     private var liveActivityUpdateTask: Task<Void, Never>?
-    private lazy var transitionOutbox: TransitionOutbox? = {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return try? TransitionOutbox(url: support.appendingPathComponent("TimeTracker/Push/outbox.json"))
-    }()
+    #if os(iOS) && !targetEnvironment(macCatalyst)
+    private var activityTokenTasks: [String: Task<Void, Never>] = [:]
+    #endif
+    private var lastPushRelayRetry = Date.distantPast
     
     // 【325号扩展】：增加 listL 用于存储缓存表快照
     struct AlgorithmDebugData: Identifiable, Equatable {
@@ -3421,6 +3421,10 @@ class TimeStore: ObservableObject {
             self?.retryLatestRecordsIfNeeded()
             self?.pollLatestCloudRecords()
             CloudFileManager.shared.retryPendingTargets()
+            if let self, Date().timeIntervalSince(self.lastPushRelayRetry) >= 15 {
+                self.lastPushRelayRetry = Date()
+                Task { await PushRelayClient.shared.flush(); await PushRelayClient.shared.sendPendingActivityToken() }
+            }
         }
         externalActionObserver = NotificationCenter.default.addObserver(forName: TimerActionMailbox.changed, object: nil, queue: .main) { [weak self] _ in
             DispatchQueue.main.async { self?.checkForExternalUpdates() }
@@ -3661,16 +3665,6 @@ extension TimeStore {
                 excluded.insert(isolated.id)
             }
             let committed = performBatchUpdate(excludingUndoIDs: excluded) { self.records = result.records }
-            if committed, let started = result.started {
-                do {
-                    guard let transitionOutbox else { throw TransitionOutbox.OutboxError.invalidTransition }
-                    try transitionOutbox.enqueue(previousRecordID: result.ended?.id,
-                        newRecordID: started.id, category: started.category,
-                        startedAt: started.startTime, committedAt: Date())
-                } catch {
-                    recordEditErrorMessage = "记录已保存，但实时通知事件未能排队：\(error.localizedDescription)"
-                }
-            }
             if committed && UserDefaults.standard.bool(forKey: "record_transition_trace_enabled"), result.started != nil || result.ended != nil {
                 RecordTimeDiagnostics.shared.capture([result.ended, result.started].compactMap { $0 }, phase: "switch.applied",
                     note: "旧任务终点与新任务起点使用同一个点击时间；只切割旧任务本身。", allowNormal: true)
@@ -3782,7 +3776,24 @@ extension TimeStore {
             syncToAppGroup()
             return false
         }
-        if records != original { sortAndSave() }
+        if records != original {
+            sortAndSave()
+            let oldCurrent = original.last(where: \.isOngoing)
+            let newCurrent = records.last(where: \.isOngoing)
+            if let newCurrent,
+               oldCurrent?.id != newCurrent.id || oldCurrent?.category != newCurrent.category || oldCurrent?.startTime != newCurrent.startTime {
+                do {
+                    guard let outbox = TransitionOutbox.shared else { throw TransitionOutbox.OutboxError.invalidTransition }
+                    try outbox.enqueue(previousRecordID: oldCurrent?.id,
+                        newRecordID: newCurrent.id, category: newCurrent.category,
+                        startedAt: newCurrent.startTime, committedAt: Date(),
+                        yesterdayScore: efficiencyStore?.yesterdayScoreCache)
+                    Task { await PushRelayClient.shared.flush() }
+                } catch {
+                    recordEditErrorMessage = "记录已保存，但实时通知事件未能排队：\(error.localizedDescription)"
+                }
+            }
+        }
         else { _ = undoStack.popLast(); syncToAppGroup() }
         return true
     }
@@ -3902,14 +3913,40 @@ extension TimeStore {
         let s = UserDefaults(suiteName: appGroupIdentifier)?.double(forKey: "sharedYesterdayScore") ?? 0.0
         let content = ActivityContent(state: TimeTrackerAttributes.ContentState(category: current.category, startTime: current.startTime, yesterdayScore: s), staleDate: nil)
         guard !Task.isCancelled else { return }
-        let activities = Activity<TimeTrackerAttributes>.activities
+        var activities = Activity<TimeTrackerAttributes>.activities
+        if !UserDefaults.standard.bool(forKey: "tt_live_push_migrated_v1") {
+            for activity in activities { await activity.end(nil, dismissalPolicy: .immediate) }
+            activities = []
+            UserDefaults.standard.set(true, forKey: "tt_live_push_migrated_v1")
+        }
         if activities.isEmpty {
-            do { _ = try Activity.request(attributes: TimeTrackerAttributes(), content: content, pushType: nil) }
+            do {
+                let activity = try Activity.request(attributes: TimeTrackerAttributes(), content: content, pushType: .token)
+                observePushToken(for: activity)
+            }
             catch { print("[TimerSync] Live Activity request failed: \(error)") }
         } else {
             for activity in activities {
                 guard !Task.isCancelled else { return }
-                await activity.update(content)
+                await activity.update(content, timestamp: max(latestRecordEditAt, current.startTime))
+                observePushToken(for: activity)
+            }
+        }
+    }
+
+    private func observePushToken(for activity: Activity<TimeTrackerAttributes>) {
+        guard activityTokenTasks[activity.id] == nil else { return }
+        #if DEBUG
+        let environment = "development"
+        #else
+        let environment = "production"
+        #endif
+        if let token = activity.pushToken {
+            Task { await PushRelayClient.shared.registerActivityToken(token, activityID: activity.id, environment: environment) }
+        }
+        activityTokenTasks[activity.id] = Task {
+            for await token in activity.pushTokenUpdates {
+                await PushRelayClient.shared.registerActivityToken(token, activityID: activity.id, environment: environment)
             }
         }
     }
@@ -10180,6 +10217,9 @@ struct FunctionSettingsView: View {
                         Text(cloudSync.recordsCheckMessage).font(.caption).foregroundStyle(.secondary)
                         Text(cloudSync.recordsUploadMessage).font(.caption).foregroundStyle(.secondary)
                         Button("立即检查") { cloudSync.checkRecordsNow { ts.load() } }
+                    }.listRowBackground(skin == "spring" ? TimeSkin.pale : Color(white: 0.1))
+                    Section("跨设备实时通知") {
+                        NavigationLink("设备配对与推送") { PushRelaySettingsView() }
                     }.listRowBackground(skin == "spring" ? TimeSkin.pale : Color(white: 0.1))
                 }
                 .scrollContentBackground(.hidden)

@@ -10,10 +10,15 @@ struct TimerTransitionEvent: Codable, Equatable, Identifiable {
     let category: String
     let startedAt: Double
     let committedAt: Double
+    let yesterdayScore: Double?
 }
 
 final class TransitionOutbox {
     enum OutboxError: Error { case invalidTransition }
+    static let shared: TransitionOutbox? = {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return try? TransitionOutbox(url: support.appendingPathComponent("TimeTracker/Push/outbox.json"))
+    }()
     private struct State: Codable {
         var deviceID: UUID
         var nextSequence: UInt64
@@ -36,7 +41,7 @@ final class TransitionOutbox {
 
     @discardableResult
     func enqueue(previousRecordID: UUID?, newRecordID: UUID, category: String,
-                 startedAt: Date, committedAt: Date) throws -> TimerTransitionEvent {
+                 startedAt: Date, committedAt: Date, yesterdayScore: Double? = nil) throws -> TimerTransitionEvent {
         lock.lock(); defer { lock.unlock() }
         guard !category.isEmpty, startedAt <= committedAt,
               state.nextSequence < UInt64.max else { throw OutboxError.invalidTransition }
@@ -44,7 +49,8 @@ final class TransitionOutbox {
             sourceSequence: state.nextSequence, previousRecordID: previousRecordID,
             newRecordID: newRecordID, category: category,
             startedAt: startedAt.timeIntervalSince1970,
-            committedAt: committedAt.timeIntervalSince1970)
+            committedAt: committedAt.timeIntervalSince1970,
+            yesterdayScore: yesterdayScore)
         var next = state
         next.nextSequence += 1
         next.pending.append(event)
@@ -56,6 +62,11 @@ final class TransitionOutbox {
     func pending() -> [TimerTransitionEvent] {
         lock.lock(); defer { lock.unlock() }
         return state.pending
+    }
+
+    var deviceID: UUID {
+        lock.lock(); defer { lock.unlock() }
+        return state.deviceID
     }
 
     func acknowledge(_ id: UUID) throws {
