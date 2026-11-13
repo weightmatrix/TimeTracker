@@ -2620,6 +2620,9 @@ struct TimeTrackerApp: App {
             #endif
             .onAppear {
                 StartupDiagnostics.shared.mark("WindowGroup.onAppear")
+                #if os(iOS) && !targetEnvironment(macCatalyst)
+                LiveWeatherSnapshotCenter.shared.refreshIfNeeded()
+                #endif
                 #if os(macOS)
                 MacAutomaticIcon.shared.start()
                 #endif
@@ -2655,6 +2658,9 @@ struct TimeTrackerApp: App {
                 if newPhase == .active {
                     settingsStore.load()
                     CloudSyncManager.shared.checkRecordsNow { timeStore.load() }
+                    #if os(iOS) && !targetEnvironment(macCatalyst)
+                    LiveWeatherSnapshotCenter.shared.refreshIfNeeded()
+                    #endif
                 }
                 else if newPhase == .background || newPhase == .inactive { performAutoBackup() }
             }

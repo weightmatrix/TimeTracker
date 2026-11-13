@@ -356,33 +356,121 @@ struct RectLockView: View {
 
 // MARK: - 7. Live Activity 配置
 #if os(iOS) && canImport(ActivityKit) && !targetEnvironment(macCatalyst)
+private struct LiveWeatherSnapshot: Codable {
+    let fetchedAt: Date
+    let symbolName: String
+    let temperature: Int
+    let summary: String
+    let high: Int
+    let low: Int
+    let attributionURL: URL
+}
+
+private struct LiveActivityActionBar: View {
+    let current: String
+    private let categories: [ActivityCategory] = [.work, .necessity, .life, .monitor]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(categories, id: \.self) { category in
+                let selected = current == category.rawValue
+                let color = getCatColor(category.rawValue)
+                Button(intent: LiveActivityStartTimerIntent(category: category)) {
+                    VStack(spacing: 6) {
+                        Image(systemName: getCatIcon(category.rawValue))
+                            .font(.system(size: 23, weight: .bold))
+                            .frame(height: 26)
+                        Text(category.rawValue)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                    }
+                    .foregroundStyle(selected ? Color.white : color.opacity(0.95))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 68)
+                    .background {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(LinearGradient(colors: selected
+                                ? [color.opacity(0.9), color.opacity(0.47), Color.white.opacity(0.12)]
+                                : [color.opacity(0.16), Color.white.opacity(0.07)],
+                                startPoint: .topLeading, endPoint: .bottomTrailing))
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(color.opacity(selected ? 0.95 : 0.28), lineWidth: selected ? 1.5 : 0.7)
+                    }
+                    .shadow(color: selected ? color.opacity(0.58) : .clear, radius: 13, y: 2)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+private struct LiveActivityWeather: View {
+    private var snapshot: LiveWeatherSnapshot? {
+        guard let data = UserDefaults(suiteName: widgetAppGroupIdentifier)?.data(forKey: "liveWeatherSnapshotV1"),
+              let value = try? JSONDecoder().decode(LiveWeatherSnapshot.self, from: data),
+              Date().timeIntervalSince(value.fetchedAt) < 90 * 60 else { return nil }
+        return value
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let snapshot {
+                Label("\(snapshot.temperature)°  \(snapshot.summary)", systemImage: snapshot.symbolName)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text("今天 \(snapshot.low)°–\(snapshot.high)°")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                Link(" Weather", destination: snapshot.attributionURL)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+            } else {
+                Label("天气待获取", systemImage: "cloud.sun")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+        }
+    }
+}
+
 struct TimeTrackerLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: TimeTrackerAttributes.self) { context in
             // 锁屏横幅
-            VStack(spacing: 12) {
+            VStack(spacing: 13) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Label(context.state.category, systemImage: getCatIcon(context.state.category))
-                            .font(.headline).foregroundColor(getCatColor(context.state.category))
+                            .font(.system(size: 20, weight: .heavy, design: .rounded))
+                            .foregroundColor(getCatColor(context.state.category))
                         Text(context.state.startTime, style: .timer)
-                            .font(.system(size: 32, weight: .heavy, design: .monospaced))
+                            .font(.system(size: 36, weight: .heavy, design: .rounded).monospacedDigit())
                             .foregroundColor(.white)
                     }
-                    Spacer()
-                    // 昨天得分展示
-                    VStack(alignment: .trailing) {
-                        Text("昨日效率").font(.caption).foregroundColor(.gray)
-                        Text(String(format: "%.0f", context.state.yesterdayScore))
-                            .font(.system(.title2, design: .rounded)).bold()
-                            .foregroundColor(.orange)
+                    Spacer(minLength: 8)
+                    HStack(alignment: .top, spacing: 10) {
+                        LiveActivityWeather()
+                            .frame(maxWidth: 105, alignment: .leading)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("昨日效率").font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.64))
+                            Text(String(format: "%.0f", context.state.yesterdayScore))
+                                .font(.system(size: 23, weight: .bold, design: .rounded))
+                                .foregroundColor(.orange)
+                        }
                     }
                 }
-                Divider().background(Color.white.opacity(0.1))
-                MediumBarView(current: context.state.category)
+                LiveActivityActionBar(current: context.state.category)
             }
-            .padding(16)
-            .activityBackgroundTint(Color(white: 0.1))
+            .padding(15)
+            .background {
+                LinearGradient(colors: [Color(red: 0.16, green: 0.18, blue: 0.34).opacity(0.72),
+                    Color(red: 0.06, green: 0.20, blue: 0.27).opacity(0.44),
+                    Color(red: 0.28, green: 0.12, blue: 0.36).opacity(0.38)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            .activityBackgroundTint(Color(red: 0.10, green: 0.12, blue: 0.24).opacity(0.55))
             
         } dynamicIsland: { context in
             DynamicIsland {
@@ -398,7 +486,7 @@ struct TimeTrackerLiveActivity: Widget {
                         .foregroundColor(.orange)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    MediumBarView(current: context.state.category)
+                    LiveActivityActionBar(current: context.state.category)
                 }
             } compactLeading: {
                 Image(systemName: getCatIcon(context.state.category))

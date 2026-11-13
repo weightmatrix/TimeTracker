@@ -709,6 +709,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "需要在日历中显示和管理您的日程安排";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "用于在计时实时活动中显示当前位置的天气；仅在打开应用时更新。";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "导出表格变成图片存到到照片";
 				INFOPLIST_KEY_NSRemindersUsageDescription = "我们需要访问您的提醒事项，以便在应用内同步显示和管理您的待办任务。";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
@@ -776,6 +777,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "需要在日历中显示和管理您的日程安排";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "用于在计时实时活动中显示当前位置的天气；仅在打开应用时更新。";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "导出表格变成图片存到到照片";
 				INFOPLIST_KEY_NSRemindersUsageDescription = "我们需要访问您的提醒事项，以便在应用内同步显示和管理您的待办任务。";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;

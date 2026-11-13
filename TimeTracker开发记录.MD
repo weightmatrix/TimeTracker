@@ -138,3 +138,9 @@ iPhone 17 Pro Max恢复连接后已补装时间日夜图标版本，安装JSON o
 - APNs 服务部署于 `/srv/apps/timetracker`，密钥仅在该服务的独立目录内；HTTPS 入口为 `https://zhibenwang.com/time-push/`。两端用一次性配对码关联。
 - Mac、iPhone 真机 Debug 构建通过，iPhone 17 Pro Max 已安装新构建。HTTPS、鉴权、100 次连续事件、重试去重及 APNs 签名检查通过；两端已配对，服务器收到 Mac 切换事件并成功处理手机推送，用户确认手机实时活动显示最新“工作”。
 - 代码提交 `8918c2b` 已推送 GitHub；改动前的回退分支与标签均为 `backup/987-before-apns-20261112`、`backup-987-before-apns-20261112`。服务器入口模板另有部署前备份。
+
+## 2026-11-13 · #988 锁屏实时活动外观与天气
+
+- 锁屏实时活动改为四个大圆角分类按钮；当前类别用荧光渐变、描边和光晕强调，底板改为淡色半透明渐变。灵动岛展开态复用按钮布局。
+- 昨日效率左侧显示 Apple WeatherKit 的当前天气和当日高低温，并提供 Weather 法律来源链接。天气仅在 iPhone App 前台按需读取当前位置，最多每 30 分钟请求一次；缓存超过 90 分钟不显示旧天气。位置和天气不发送到 TimeTracker 服务器。
+- 通用 iOS 签名构建通过，签名配置包含 WeatherKit 权限；本次尚未在 iPhone 真机检查锁屏视觉及当地天气返回。
