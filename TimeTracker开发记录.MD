@@ -142,5 +142,6 @@ iPhone 17 Pro Max恢复连接后已补装时间日夜图标版本，安装JSON o
 ## 2026-11-13 · #988 锁屏实时活动外观与天气
 
 - 锁屏实时活动改为四个大圆角分类按钮；当前类别用荧光渐变、描边和光晕强调，底板改为淡色半透明渐变。灵动岛展开态复用按钮布局。
-- 昨日效率左侧显示 Apple WeatherKit 的当前天气和当日高低温，并提供 Weather 法律来源链接。天气仅在 iPhone App 前台按需读取当前位置，最多每 30 分钟请求一次；缓存超过 90 分钟不显示旧天气。位置和天气不发送到 TimeTracker 服务器。
-- 通用 iOS 签名构建通过，签名配置包含 WeatherKit 权限；本次尚未在 iPhone 真机检查锁屏视觉及当地天气返回。
+- 昨日效率左侧显示 Apple WeatherKit 的当前天气和当日高低温，并提供 Weather 法律来源链接。天气仅在 iPhone App 前台按需读取当前位置；成功后 30 分钟内不重取，失败后最短 2 分钟重试；缓存超过 90 分钟不显示旧天气。位置和天气不发送到 TimeTracker 服务器。
+- 真机诊断发现 `WeatherKit could not generate an authentication token for Han.TimeTracker`。App ID 的 Capabilities 已启用 WeatherKit，但 App Services 未启用；在 Apple Developer 后台补开后，iPhone 17 Pro Max 实测状态为 `weather-ready`，缓存取得 14°C、“晴朗无云”和今日高低温。
+- 未来 12 小时若有显著降雨或降雪概率，实时活动天气区改为雨雪提醒及概率，图标请求轻微脉动；iOS 可能限制实时活动持续动画，颜色和文字提示仍显示。真机 Debug 构建通过。雨雪展示尚未在真实雨雪天气下观察。

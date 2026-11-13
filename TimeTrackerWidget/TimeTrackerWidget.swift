@@ -364,6 +364,8 @@ private struct LiveWeatherSnapshot: Codable {
     let high: Int
     let low: Int
     let attributionURL: URL
+    let precipitationAlert: String?
+    let precipitationKind: String?
 }
 
 private struct LiveActivityActionBar: View {
@@ -420,9 +422,18 @@ private struct LiveActivityWeather: View {
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text("今天 \(snapshot.low)°–\(snapshot.high)°")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.7))
+                if let alert = snapshot.precipitationAlert {
+                    Label(alert, systemImage: snapshot.precipitationKind == "snow" ? "cloud.snow.fill" : "cloud.rain.fill")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(snapshot.precipitationKind == "snow" ? .cyan : .yellow)
+                        .symbolEffect(.pulse, options: .repeating)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                } else {
+                    Text("今天 \(snapshot.low)°–\(snapshot.high)°")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
                 Link(" Weather", destination: snapshot.attributionURL)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
