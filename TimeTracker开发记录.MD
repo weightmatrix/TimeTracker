@@ -145,3 +145,9 @@ iPhone 17 Pro Max恢复连接后已补装时间日夜图标版本，安装JSON o
 - 昨日效率左侧显示 Apple WeatherKit 的当前天气和当日高低温，并提供 Weather 法律来源链接。天气仅在 iPhone App 前台按需读取当前位置；成功后 30 分钟内不重取，失败后最短 2 分钟重试；缓存超过 90 分钟不显示旧天气。位置和天气不发送到 TimeTracker 服务器。
 - 真机诊断发现 `WeatherKit could not generate an authentication token for Han.TimeTracker`。App ID 的 Capabilities 已启用 WeatherKit，但 App Services 未启用；在 Apple Developer 后台补开后，iPhone 17 Pro Max 实测状态为 `weather-ready`，缓存取得 14°C、“晴朗无云”和今日高低温。
 - 未来 12 小时若有显著降雨或降雪概率，实时活动天气区改为雨雪提醒及概率，图标请求轻微脉动；iOS 可能限制实时活动持续动画，颜色和文字提示仍显示。真机 Debug 构建通过。雨雪展示尚未在真实雨雪天气下观察。
+
+
+## 2026-11-14｜修正运行中 Dock 图标偏大
+- Mac 静态图标和运行时日夜图统一：1024 画布中放置 864px 圆角底板，四周各 80px 透明留白。深浅版轮廓完全相同，内部图文同比缩放。
+- 此次与排课在 Dock 的可见大小对齐，不修改排课；iPhone/iPad 仍为不透明满版，禁止套用 Mac 透明留白。
+- 日夜母版保留。旧进程缓存的图标需保存文档并退出重开应用后生效。
