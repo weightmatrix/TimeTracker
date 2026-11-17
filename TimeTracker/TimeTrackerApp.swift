@@ -3934,7 +3934,9 @@ extension TimeStore {
         } else {
             for activity in activities {
                 guard !Task.isCancelled else { return }
-                await activity.update(content, timestamp: max(latestRecordEditAt, current.startTime))
+                // ActivityKit drops an update older than the last APNs payload. A
+                // record's start time can be hours old when the app reloads it.
+                await activity.update(content, timestamp: Date())
                 observePushToken(for: activity)
             }
         }
