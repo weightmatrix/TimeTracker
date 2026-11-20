@@ -97,8 +97,14 @@ final class LiveWeatherSnapshotCenter: NSObject, CLLocationManagerDelegate {
                 defaults.set(data, forKey: Self.cacheKey)
                 lastSuccess = Date()
                 note("weather-ready")
+                guard let currentData = defaults.data(forKey: "sharedCurrentState"),
+                      let current = try? JSONDecoder().decode(CurrentState.self, from: currentData) else { return }
+                let score = defaults.double(forKey: "sharedYesterdayScore")
                 for activity in Activity<TimeTrackerAttributes>.activities {
-                    await activity.update(activity.content, timestamp: Date())
+                    let content = ActivityContent(
+                        state: TimeTrackerAttributes.ContentState(category: current.category,
+                            startTime: current.startTime, yesterdayScore: score), staleDate: nil)
+                    await activity.update(content, timestamp: Date())
                 }
             } catch {
                 note("weather-error: \(error.localizedDescription)")

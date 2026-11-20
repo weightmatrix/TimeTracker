@@ -2664,6 +2664,11 @@ struct TimeTrackerApp: App {
                 }
                 else if newPhase == .background || newPhase == .inactive { performAutoBackup() }
             }
+            #if os(iOS) && !targetEnvironment(macCatalyst)
+            .onReceive(Timer.publish(every: 15 * 60, on: .main, in: .common).autoconnect()) { _ in
+                if scenePhase == .active { LiveWeatherSnapshotCenter.shared.refreshIfNeeded() }
+            }
+            #endif
         }
         #if os(macOS)
         Settings {
